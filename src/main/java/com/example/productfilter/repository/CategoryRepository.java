@@ -15,4 +15,9 @@ public interface CategoryRepository extends JpaRepository<Category, Integer> {
     @Query("SELECT DISTINCT c FROM ProductCategories pc JOIN Category c ON pc.categoryId = c.categoryId WHERE pc.productId IN :productIds")
     List<Category> findByProducts(@Param("productIds") Collection<Integer> productIds);
 
+    @Query("SELECT DISTINCT c FROM ProductCategories pc " +
+            "JOIN Category c ON pc.categoryId = c.categoryId " +
+            "WHERE pc.productId IN :productIds AND c.parentCategoryId IS NULL")
+    List<Category> findParentCategoriesByProducts(@Param("productIds") Collection<Integer> productIds);
+
 }

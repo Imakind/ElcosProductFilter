@@ -8,26 +8,20 @@
         function onBrandChange() {
             let brandId = document.querySelector('select[name="brandId"]').value;
 
-            fetch(`/filter/options?brandId=` + brandId)
+            fetch(`/filter/groups?brandId=` + brandId)
                 .then(res => res.json())
                 .then(data => {
-                    // Обновим категории
                     let groupSelect = document.querySelector('select[name="groupId"]');
                     groupSelect.innerHTML = '<option value="">Выберите группу</option>';
-                    data.groups.forEach(group => {
+                    data.forEach(group => {
                         groupSelect.innerHTML += `<option value="${group.categoryId}">${group.name}</option>`;
                     });
-
-                    // Обновим параметры (пример для param1)
-                    let param1Select = document.querySelector('select[name="param1"]');
-                    param1Select.innerHTML = '<option value="">Выберите значение</option>';
-                    data.param1List.forEach(val => {
-                        param1Select.innerHTML += `<option value="${val}">${val}</option>`;
-                    });
-
-                    // можно повторить для param2List... и подгрупп
+                    groupSelect.disabled = false;
                 });
+
+            updateParameters();
         }
+
         function onGroupChange() {
             let groupId = document.querySelector('select[name="groupId"]').value;
 
@@ -39,15 +33,52 @@
                     data.forEach(sub => {
                         subGroupSelect.innerHTML += `<option value="${sub.categoryId}">${sub.name}</option>`;
                     });
+                    subGroupSelect.disabled = false;
+                });
+
+            updateParameters();
+        }
+
+        function onSubGroupChange() {
+            updateParameters();
+        }
+
+        function updateParameters() {
+            let brandId = document.querySelector('select[name="brandId"]').value;
+            let groupId = document.querySelector('select[name="groupId"]').value;
+            let subGroupId = document.querySelector('select[name="subGroupId"]').value;
+
+            let url = `/filter/parameters?brandId=` + brandId;
+            if (groupId) url += `&groupId=` + groupId;
+            if (subGroupId) url += `&subGroupId=` + subGroupId;
+
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    updateSelect('param1', data.param1List);
+                    updateSelect('param2', data.param2List);
+                    updateSelect('param3', data.param3List);
+                    updateSelect('param4', data.param4List);
+                    updateSelect('param5', data.param5List);
                 });
         }
+
+        function updateSelect(paramName, values) {
+            let select = document.querySelector('select[name="' + paramName + '"]');
+            select.innerHTML = '<option value="">Выберите значение</option>';
+            values.forEach(val => {
+                select.innerHTML += `<option value="${val}">${val}</option>`;
+            });
+            select.disabled = false;
+        }
     </script>
+
 </head>
 <body class="p-4">
 <div class="container">
     <h2 class="mb-4">Фильтр товаров</h2>
-    <form method="get" th:action="@{/}">
-        <div class="row mb-3">
+    <form method="get" th:action="@{/filter/results}">
+    <div class="row mb-3">
             <div class="col">
                 <label>Бренд:</label>
                 <select name="brandId" class="form-select" onchange="onBrandChange()">
@@ -61,7 +92,7 @@
             </div>
             <div class="col">
                 <label>Группа товара:</label>
-                <select name="groupId" class="form-select" onchange="onGroupChange()">
+                <select name="groupId" class="form-select" onchange="onGroupChange()" disabled>
                 <option value="">Выберите группу</option>
                     <option th:each="group : ${groups}"
                             th:value="${group.categoryId}"
@@ -72,7 +103,7 @@
             </div>
             <div class="col">
                 <label>Подгруппа товара:</label>
-                <select name="subGroupId" class="form-select">
+                <select name="subGroupId" class="form-select" onchange="onSubGroupChange()" disabled>
                     <option value="">Выберите подгруппу</option>
                     <option th:each="sub : ${subGroups}"
                             th:value="${sub.categoryId}"
@@ -86,7 +117,7 @@
         <div class="row mb-3">
             <div class="col">
                 <label>Параметр 1:</label>
-                <select name="param1" class="form-select">
+                <select name="param1" class="form-select" disabled>
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param1List}"
                             th:value="${val}" th:text="${val}"
@@ -96,7 +127,7 @@
             </div>
             <div class="col">
                 <label>Параметр 2:</label>
-                <select name="param2" class="form-select">
+                <select name="param2" class="form-select" disabled>
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param2List}"
                             th:value="${val}" th:text="${val}"
@@ -106,7 +137,7 @@
             </div>
             <div class="col">
                 <label>Параметр 3:</label>
-                <select name="param3" class="form-select">
+                <select name="param3" class="form-select" disabled>
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param3List}"
                             th:value="${val}" th:text="${val}"
@@ -116,7 +147,7 @@
             </div>
             <div class="col">
                 <label>Параметр 4:</label>
-                <select name="param4" class="form-select">
+                <select name="param4" class="form-select" disabled>
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param4List}"
                             th:value="${val}" th:text="${val}"
@@ -126,7 +157,7 @@
             </div>
             <div class="col">
                 <label>Параметр 5:</label>
-                <select name="param5" class="form-select">
+                <select name="param5" class="form-select" disabled>
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param5List}"
                             th:value="${val}" th:text="${val}"
@@ -138,6 +169,16 @@
 
         <button type="submit" class="btn btn-primary">Применить</button>
     </form>
+
+    <hr class="my-4">
+    <h4>Результаты фильтрации:</h4>
+
+    <div th:if="${products != null}">
+        <ul class="list-group">
+            <li class="list-group-item" th:each="prod : ${products}" th:text="${prod.name}"></li>
+        </ul>
+    </div>
+
 </div>
 </body>
 </html>
