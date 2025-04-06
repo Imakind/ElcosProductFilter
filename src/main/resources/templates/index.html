@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Фильтр товаров</title>
+</head>
+<body>
+
+<h1>Фильтр товаров</h1>
+
+<!-- Выбор бренда -->
+<div>
+    <label for="brandSelect">Бренд:</label>
+    <select id="brandSelect" name="brand">
+        <!-- Если хотим на сервере сразу отдать все бренды, можем через th:each заполнить -->
+        <!--
+        <option th:each="brand : ${allBrands}"
+                th:value="${brand}"
+                th:text="${brand}">
+        </option>
+        -->
+    </select>
+</div>
+
+<!-- Выбор категории -->
+<div>
+    <label for="categorySelect">Категория:</label>
+    <select id="categorySelect" name="category">
+        <!-- значения будут подгружаться динамически -->
+    </select>
+</div>
+
+<!-- Выбор подкатегории -->
+<div>
+    <label for="subCategorySelect">Подкатегория:</label>
+    <select id="subCategorySelect" name="subCategory">
+        <!-- значения будут подгружаться динамически -->
+    </select>
+</div>
+
+<!-- Параметры -->
+<div>
+    <label for="param1Select">Параметр 1:</label>
+    <select id="param1Select" name="param1">
+        <!-- ... -->
+    </select>
+</div>
+<div>
+    <label for="param2Select">Параметр 2:</label>
+    <select id="param2Select" name="param2">
+        <!-- ... -->
+    </select>
+</div>
+<!-- И так далее для param3..param5 -->
+
+<!-- Кнопка для запроса списка товаров после выбора всех полей -->
+<button id="filterButton">Показать товары</button>
+
+<!-- Здесь будем отображать результаты (список товаров) -->
+<div id="resultsContainer"></div>
+
+<script>
+    // Ниже чисто условный код JavaScript (можно jQuery, fetch API, axios и т.п.)
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. При загрузке страницы забираем список всех брендов
+        fetch('/products/brands')
+            .then(resp => resp.json())
+            .then(brands => {
+                const brandSelect = document.getElementById('brandSelect');
+                brandSelect.innerHTML = '<option value="">(Выберите бренд)</option>';
+                brands.forEach(b => {
+                    const opt = document.createElement('option');
+                    opt.value = b;
+                    opt.textContent = b;
+                    brandSelect.appendChild(opt);
+                });
+            })
+            .catch(err => console.error(err));
+
+        // 2. Когда пользователь выбрал бренд, подгружаем доступные категории
+        document.getElementById('brandSelect').addEventListener('change', function() {
+            const brand = this.value;
+            // Сбрасываем значения следующих полей
+            document.getElementById('categorySelect').innerHTML = '';
+            document.getElementById('subCategorySelect').innerHTML = '';
+            // param1Select и т.д. тоже можно сбрасывать
+
+            if (brand) {
+                fetch('/products/categories?brand=' + encodeURIComponent(brand))
+                    .then(resp => resp.json())
+                    .then(categories => {
+                        const categorySelect = document.getElementById('categorySelect');
+                        categorySelect.innerHTML = '<option value="">(Выберите категорию)</option>';
+                        categories.forEach(c => {
+                            const opt = document.createElement('option');
+                            opt.value = c;
+                            opt.textContent = c;
+                            categorySelect.appendChild(opt);
+                        });
+                    })
+                    .catch(err => console.error(err));
+            }
+        });
+
+        // 3. Аналогично, при выборе категории → подгружаем подкатегории
+        document.getElementById('categorySelect').addEventListener('change', function() {
+            const brand = document.getElementById('brandSelect').value;
+            const category = this.value;
+            document.getElementById('subCategorySelect').innerHTML = '';
+
+            if (brand && category) {
+                const url = '/products/subcategories?brand=' + encodeURIComponent(brand)
+                    + '&category=' + encodeURIComponent(category);
+                fetch(url)
+                    .then(resp => resp.json())
+                    .then(subcats => {
+                        const subcatSelect = document.getElementById('subCategorySelect');
+                        subcatSelect.innerHTML = '<option value="">(Выберите подкатегорию)</option>';
+                        subcats.forEach(s => {
+                            const opt = document.createElement('option');
+                            opt.value = s;
+                            opt.textContent = s;
+                            subcatSelect.appendChild(opt);
+                        });
+                    })
+                    .catch(err => console.error(err));
+            }
+        });
+
+        // 4. Аналогичная логика для param1…param5
+        //    например, при изменении subcategory - грузим возможные значения param1 и т.п.
+
+        // 5. Финальный запрос на товары, когда нажимаем "Показать товары"
+        document.getElementById('filterButton').addEventListener('click', function() {
+            const brand = document.getElementById('brandSelect').value;
+            const category = document.getElementById('categorySelect').value;
+            const subCategory = document.getElementById('subCategorySelect').value;
+            const param1 = document.getElementById('param1Select').value;
+            const param2 = document.getElementById('param2Select').value;
+            // ... param3, param4, param5
+
+            const params = new URLSearchParams();
+            if (brand) params.append('brand', brand);
+            if (category) params.append('category', category);
+            if (subCategory) params.append('subCategory', subCategory);
+            if (param1) params.append('param1', param1);
+            if (param2) params.append('param2', param2);
+            // ...
+
+            fetch('/products/filter?' + params.toString())
+                .then(resp => resp.json())
+                .then(products => {
+                    // Отобразим товары в resultsContainer
+                    const resultsDiv = document.getElementById('resultsContainer');
+                    resultsDiv.innerHTML = '';
+
+                    products.forEach(p => {
+                        const item = document.createElement('div');
+                        // Пример: показываем простую инфу
+                        item.textContent = `Товар ID=${p.id}, бренд=${p.brand}, категория=${p.category}`;
+                        resultsDiv.appendChild(item);
+                    });
+                })
+                .catch(err => console.error(err));
+        });
+    });
+</script>
+
+</body>
+</html>
