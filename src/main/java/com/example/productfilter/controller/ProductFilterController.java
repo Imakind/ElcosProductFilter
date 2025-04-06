@@ -7,12 +7,15 @@ import com.example.productfilter.model.ProductParameters;
 import com.example.productfilter.repository.*;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -31,16 +34,9 @@ public class ProductFilterController {
 
     @GetMapping("/")
     public String index(Model model) {
-        // 🟢 1. Загрузить бренды
         model.addAttribute("brands", brandRepo.findAll());
-
-        // 🟢 2. Загрузить родительские категории (группы)
         model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
-
-        // 🟢 3. Загрузить подкатегории — временно любую (например, с parentId = 1)
         model.addAttribute("subGroups", categoryRepo.findByParentCategoryId(1));
-
-        // 🟢 4. Загрузить списки параметров (уникальные значения)
         model.addAttribute("param1List", parameterRepo.findDistinctParam1());
         model.addAttribute("param2List", parameterRepo.findDistinctParam2());
         model.addAttribute("param3List", parameterRepo.findDistinctParam3());
@@ -55,14 +51,12 @@ public class ProductFilterController {
     public Map<String, Object> getOptionsByBrand(@RequestParam("brandId") Integer brandId) {
         Map<String, Object> response = new HashMap<>();
 
-        // Найдём продукты этого бренда
         List<Product> products = productRepo.findByBrand_BrandId(brandId);
 
         // Категории этих продуктов
         Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
         List<Category> allCategories = categoryRepo.findByProducts(productIds);
 
-// ❗ фильтруем только родительские категории
         List<Category> parentCategories = allCategories.stream()
                 .filter(c -> c.getParentCategoryId() == null)
                 .collect(Collectors.toList());
@@ -155,9 +149,14 @@ public class ProductFilterController {
             @RequestParam(value = "param3", required = false) String param3,
             @RequestParam(value = "param4", required = false) String param4,
             @RequestParam(value = "param5", required = false) String param5,
+            @RequestParam(value = "page", defaultValue = "0") int page,
             Model model) {
 
-        // 🟢 Добавляем все списки обратно для формы
+        int pageSize = 21;
+        Pageable pageable = PageRequest.of(page, pageSize);
+
+
+        //  Добавляем все списки обратно для формы
         model.addAttribute("brands", brandRepo.findAll());
         model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
         model.addAttribute("subGroups", groupId != null ? categoryRepo.findByParentCategoryId(groupId) : List.of());
@@ -167,7 +166,7 @@ public class ProductFilterController {
         model.addAttribute("param4List", parameterRepo.findDistinctParam4());
         model.addAttribute("param5List", parameterRepo.findDistinctParam5());
 
-        // 🟢 Передаем выбранные значения обратно
+        //  Передаем выбранные значения обратно
         Map<String, Object> selectedParams = new HashMap<>();
         selectedParams.put("brandId", brandId);
         selectedParams.put("groupId", groupId);
@@ -180,11 +179,10 @@ public class ProductFilterController {
         model.addAttribute("param", selectedParams);
 
 
-        // 🟡 Начинаем с полного списка продуктов
         List<Product> products = productRepo.findAll();
         Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
 
-        // 🔵 Фильтрация по бренду
+        //  Фильтрация по бренду
         if (brandId != null) {
             products = products.stream()
                     .filter(p -> p.getBrand().getBrandId().equals(brandId))
@@ -192,7 +190,7 @@ public class ProductFilterController {
             productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
         }
 
-        // 🔵 Фильтрация по категориям
+        //  Фильтрация по категориям
         if (groupId != null || subGroupId != null) {
             List<ProductCategories> links = productCategoriesRepo.findAll();
 
@@ -213,7 +211,7 @@ public class ProductFilterController {
             }
         }
 
-        // 🔵 Безопасно получаем параметры (если список продуктов пуст — не обращаемся к БД)
+        //  Безопасно получаем параметры (если список продуктов пуст — не обращаемся к БД)
         List<ProductParameters> params;
         if (productIds.isEmpty()) {
             params = new ArrayList<>();
@@ -249,12 +247,27 @@ public class ProductFilterController {
             finalProductIds = productIds;
         }
 
-        List<Product> filteredProducts = finalProductIds.isEmpty()
-                ? List.of()
-                : productRepo.findAllById(finalProductIds);
+        Page<Product> productPage = finalProductIds.isEmpty()
+                ? Page.empty()
+                : productRepo.findAllByProductIdIn(finalProductIds, pageable);
 
 
-        model.addAttribute("products", filteredProducts);
+        model.addAttribute("products", productPage.getContent()); // текущие 20 товаров
+        model.addAttribute("currentPage", page);                  // номер текущей страницы
+        model.addAttribute("totalPages", productPage.getTotalPages()); // общее количество страниц
+
+        int visiblePages = 5; // Показываем 5 кнопок
+        int startPage = Math.max(0, page - visiblePages / 2);
+        int totalPages = productPage.getTotalPages();
+        int endPage = Math.min(startPage + visiblePages - 1, totalPages - 1);
+
+// если начало упал за 0, сдвигаем вправо
+        if (endPage - startPage < visiblePages && endPage < totalPages - 1) {
+            startPage = Math.max(0, endPage - visiblePages + 1);
+        }
+
+        model.addAttribute("startPage", startPage);
+        model.addAttribute("endPage", endPage);
 
         return "filter";
     }
@@ -278,7 +291,7 @@ public class ProductFilterController {
                 : List.of();
 
         model.addAttribute("cartProducts", products);
-        return "cart"; // создадим отдельный cart.html
+        return "cart";
     }
 
 }

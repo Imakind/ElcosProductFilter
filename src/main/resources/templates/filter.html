@@ -199,9 +199,40 @@
                     </div>
                 </div>
             </div>
+        </div>
 
 
+    <div class="d-flex justify-content-center mt-4" th:if="${totalPages > 1}">
+        <nav>
+            <ul class="pagination">
+
+                <!--  Первая страница -->
+                <li class="page-item" th:classappend="${currentPage == 0} ? ' disabled'">
+                    <a class="page-link"
+                       th:href="@{/filter/results(brandId=${param.brandId}, groupId=${param.groupId}, subGroupId=${param.subGroupId}, param1=${param.param1}, param2=${param.param2}, param3=${param.param3}, param4=${param.param4}, param5=${param.param5}, page=0)}">⏪</a>
+                </li>
+
+                <!-- Цифры -->
+                <li class="page-item"
+                    th:each="i : ${#numbers.sequence((currentPage > 2 ? currentPage - 2 : 0), (currentPage + 2 < totalPages ? currentPage + 2 : totalPages - 1))}"
+                    th:classappend="${i == currentPage} ? ' active'">
+                    <a class="page-link"
+                       th:href="@{/filter/results(page=${i}, brandId=${param.brandId}, groupId=${param.groupId}, subGroupId=${param.subGroupId}, param1=${param.param1}, param2=${param.param2}, param3=${param.param3}, param4=${param.param4}, param5=${param.param5})}"
+                       th:text="${i + 1}">1</a>
+                </li>
+
+                <!--  Последняя страница -->
+                <li class="page-item" th:classappend="${currentPage + 1 >= totalPages} ? ' disabled'">
+                    <a class="page-link"
+                       th:href="@{/filter/results(brandId=${param.brandId}, groupId=${param.groupId}, subGroupId=${param.subGroupId}, param1=${param.param1}, param2=${param.param2}, param3=${param.param3}, param4=${param.param4}, param5=${param.param5}, page=${totalPages - 1})}">⏩</a>
+                </li>
+
+            </ul>
+        </nav>
     </div>
+
+
+
 
 </div>
 </body>
