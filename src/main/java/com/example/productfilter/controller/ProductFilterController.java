@@ -5,10 +5,12 @@ import com.example.productfilter.model.Product;
 import com.example.productfilter.model.ProductCategories;
 import com.example.productfilter.model.ProductParameters;
 import com.example.productfilter.repository.*;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 
@@ -155,7 +157,7 @@ public class ProductFilterController {
             @RequestParam(value = "param5", required = false) String param5,
             Model model) {
 
-        // 🟢 ВСЕ фильтры для повторного отображения полей
+        // 🟢 Добавляем все списки обратно для формы
         model.addAttribute("brands", brandRepo.findAll());
         model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
         model.addAttribute("subGroups", groupId != null ? categoryRepo.findByParentCategoryId(groupId) : List.of());
@@ -165,73 +167,118 @@ public class ProductFilterController {
         model.addAttribute("param4List", parameterRepo.findDistinctParam4());
         model.addAttribute("param5List", parameterRepo.findDistinctParam5());
 
-        // 🟢 Повторим значения выбранных параметров, чтобы Thymeleaf отобразил selected
-        model.addAttribute("param", Map.of(
-                "brandId", brandId,
-                "groupId", groupId,
-                "subGroupId", subGroupId,
-                "param1", param1,
-                "param2", param2,
-                "param3", param3,
-                "param4", param4,
-                "param5", param5
-        ));
+        // 🟢 Передаем выбранные значения обратно
+        Map<String, Object> selectedParams = new HashMap<>();
+        selectedParams.put("brandId", brandId);
+        selectedParams.put("groupId", groupId);
+        selectedParams.put("subGroupId", subGroupId);
+        selectedParams.put("param1", param1);
+        selectedParams.put("param2", param2);
+        selectedParams.put("param3", param3);
+        selectedParams.put("param4", param4);
+        selectedParams.put("param5", param5);
+        model.addAttribute("param", selectedParams);
 
-        // 🟢 Получаем продукты
+
+        // 🟡 Начинаем с полного списка продуктов
         List<Product> products = productRepo.findAll();
+        Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
+
+        // 🔵 Фильтрация по бренду
         if (brandId != null) {
             products = products.stream()
                     .filter(p -> p.getBrand().getBrandId().equals(brandId))
                     .collect(Collectors.toList());
+            productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
         }
 
-        Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
-
-        // 🟢 Категории
+        // 🔵 Фильтрация по категориям
         if (groupId != null || subGroupId != null) {
             List<ProductCategories> links = productCategoriesRepo.findAll();
 
             if (groupId != null) {
-                Set<Integer> byGroup = links.stream()
-                        .filter(pc -> pc.getCategoryId().equals(groupId))
+                Set<Integer> groupMatches = links.stream()
+                        .filter(pc -> groupId.equals(pc.getCategoryId()))
                         .map(ProductCategories::getProductId)
                         .collect(Collectors.toSet());
-                productIds.retainAll(byGroup);
+                productIds.retainAll(groupMatches);
             }
 
             if (subGroupId != null) {
-                Set<Integer> bySub = links.stream()
-                        .filter(pc -> pc.getCategoryId().equals(subGroupId))
+                Set<Integer> subMatches = links.stream()
+                        .filter(pc -> subGroupId.equals(pc.getCategoryId()))
                         .map(ProductCategories::getProductId)
                         .collect(Collectors.toSet());
-                productIds.retainAll(bySub);
+                productIds.retainAll(subMatches);
             }
         }
 
-        // 🟢 Параметры
-        List<ProductParameters> params = parameterRepo.findByProduct_ProductIdIn(productIds);
+        // 🔵 Безопасно получаем параметры (если список продуктов пуст — не обращаемся к БД)
+        List<ProductParameters> params;
+        if (productIds.isEmpty()) {
+            params = new ArrayList<>();
+        } else {
+            params = parameterRepo.findByProduct_ProductIdIn(productIds);
 
-        if (param1 != null && !param1.isEmpty())
-            params = params.stream().filter(p -> param1.equals(p.getParam1())).collect(Collectors.toList());
-        if (param2 != null && !param2.isEmpty())
-            params = params.stream().filter(p -> param2.equals(p.getParam2())).collect(Collectors.toList());
-        if (param3 != null && !param3.isEmpty())
-            params = params.stream().filter(p -> param3.equals(p.getParam3())).collect(Collectors.toList());
-        if (param4 != null && !param4.isEmpty())
-            params = params.stream().filter(p -> param4.equals(p.getParam4())).collect(Collectors.toList());
-        if (param5 != null && !param5.isEmpty())
-            params = params.stream().filter(p -> param5.equals(p.getParam5())).collect(Collectors.toList());
+            if (param1 != null && !param1.isEmpty()) {
+                params = params.stream().filter(p -> param1.equals(p.getParam1())).collect(Collectors.toList());
+            }
+            if (param2 != null && !param2.isEmpty()) {
+                params = params.stream().filter(p -> param2.equals(p.getParam2())).collect(Collectors.toList());
+            }
+            if (param3 != null && !param3.isEmpty()) {
+                params = params.stream().filter(p -> param3.equals(p.getParam3())).collect(Collectors.toList());
+            }
+            if (param4 != null && !param4.isEmpty()) {
+                params = params.stream().filter(p -> param4.equals(p.getParam4())).collect(Collectors.toList());
+            }
+            if (param5 != null && !param5.isEmpty()) {
+                params = params.stream().filter(p -> param5.equals(p.getParam5())).collect(Collectors.toList());
+            }
+        }
 
-        Set<Integer> filteredProductIds = params.stream()
-                .map(p -> p.getProduct().getProductId())
-                .collect(Collectors.toSet());
 
-        List<Product> filteredProducts = productRepo.findAllById(filteredProductIds);
+        Set<Integer> finalProductIds;
+
+        if (!params.isEmpty()) {
+            finalProductIds = params.stream()
+                    .map(p -> p.getProduct().getProductId())
+                    .collect(Collectors.toSet());
+        } else {
+            // Если параметры пустые, но ранее были отфильтрованные productIds, их и возвращаем
+            finalProductIds = productIds;
+        }
+
+        List<Product> filteredProducts = finalProductIds.isEmpty()
+                ? List.of()
+                : productRepo.findAllById(finalProductIds);
+
 
         model.addAttribute("products", filteredProducts);
 
         return "filter";
     }
 
+    @PostMapping("/cart/add")
+    @ResponseBody
+    public void addToCart(@RequestParam("productId") Integer productId, HttpSession session) {
+        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
+        if (cart == null) cart = new ArrayList<>();
+        if (!cart.contains(productId)) {
+            cart.add(productId);
+            session.setAttribute("cart", cart);
+        }
+    }
+
+    @GetMapping("/cart")
+    public String viewCart(Model model, HttpSession session) {
+        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
+        List<Product> products = (cart != null && !cart.isEmpty())
+                ? productRepo.findAllById(cart)
+                : List.of();
+
+        model.addAttribute("cartProducts", products);
+        return "cart"; // создадим отдельный cart.html
+    }
 
 }
