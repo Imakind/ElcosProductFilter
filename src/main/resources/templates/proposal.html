@@ -31,6 +31,15 @@
                 </ul>
             </td>
             <td th:text="${product.price} + ' ₸'">Цена</td>
+            <th>Кол-во</th>
+            <td th:text="${quantities[product.productId]}">1</td>
+            <tfoot>
+                <tr>
+                    <td colspan="3" class="text-end fw-bold">Общая сумма:</td>
+                    <td th:text="${totalSum} + ' ₸'">0 ₸</td>
+                </tr>
+            </tfoot>
+
         </tr>
         </tbody>
     </table>

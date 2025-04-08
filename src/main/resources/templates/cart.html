@@ -38,6 +38,8 @@
                     <li th:text="'Параметр 4: ' + ${prm.param4}"></li>
                     <li th:text="'Параметр 5: ' + ${prm.param5}"></li>
                 </ul>
+                <td th:text="'Кол-во: ' + ${quantities[product.productId]}">1</td>
+                <br>
             </div>
 
             <p>
@@ -52,6 +54,8 @@
             <a th:href="@{'/cart/remove?productId=' + ${product.productId}}" class="btn btn-danger mt-2">Удалить</a>
         </div>
     </div>
+
+    <h4 class="mt-4">Общая сумма: <span th:text="${totalSum} + ' ₸'">0 ₸</span></h4>
 
     <form th:action="@{/cart/confirm}" method="post">
         <button type="submit" class="btn btn-success mt-3">Подтвердить заказ</button>

@@ -14,6 +14,7 @@ public class Product {
     @JoinColumn(name = "brand_id")
     private Brand brand;
 
+    @Column(name = "base_price")
     private Double price;
 
     public Double getPrice() {

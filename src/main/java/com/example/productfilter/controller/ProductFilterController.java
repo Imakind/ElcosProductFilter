@@ -46,8 +46,9 @@ public class ProductFilterController {
 
         model.addAttribute("filterParams", new HashMap<String, Object>());
 
-        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
-        model.addAttribute("cartCount", cart != null ? cart.size() : 0);
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
+        model.addAttribute("cartCount", cart != null ? cart.values().stream().mapToInt(i -> i).sum() : 0);
+
 
         return "filter";
     }
@@ -190,8 +191,9 @@ public class ProductFilterController {
         Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
 
 
-        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
-        model.addAttribute("cartCount", cart != null ? cart.size() : 0);
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
+        model.addAttribute("cartCount", cart != null ? cart.values().stream().mapToInt(i -> i).sum() : 0); // сумма всех штук
+
 
         //  Фильтрация по бренду
         if (brandId != null) {
@@ -289,19 +291,18 @@ public class ProductFilterController {
     @PostMapping("/cart/add")
     @ResponseBody
     public void addToCart(@RequestParam("productId") Integer productId, HttpSession session) {
-        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
-        if (cart == null) cart = new ArrayList<>();
-        if (!cart.contains(productId)) {
-            cart.add(productId);
-            session.setAttribute("cart", cart);
-        }
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
+        if (cart == null) cart = new HashMap<>();
+
+        cart.put(productId, cart.getOrDefault(productId, 0) + 1);
+        session.setAttribute("cart", cart);
     }
 
     @GetMapping("/cart")
     public String viewCart(Model model, HttpSession session) {
-        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
         List<Product> products = (cart != null && !cart.isEmpty())
-                ? productRepo.findAllById(cart)
+                ? productRepo.findAllById(cart.keySet())
                 : List.of();
 
         // Параметры товаров
@@ -312,7 +313,7 @@ public class ProductFilterController {
         model.addAttribute("cartProducts", products);
         model.addAttribute("cartParams", parameters);
 
-        // ✅ Оптимизированная загрузка категорий
+        //  Оптимизированная загрузка категорий
         Set<Integer> productIds = products.stream()
                 .map(Product::getProductId)
                 .collect(Collectors.toSet());
@@ -341,16 +342,25 @@ public class ProductFilterController {
 
         model.addAttribute("productCategoriesMap", productIdToCategories);
 
-        // 🔁 Восстановим параметры фильтра (если надо вернуться)
+        //  Восстановим параметры фильтра (если надо вернуться)
         Map<String, Object> lastFilters = (Map<String, Object>) session.getAttribute("lastFilters");
         model.addAttribute("filterParams", lastFilters != null ? lastFilters : new HashMap<>());
+
+        model.addAttribute("quantities", cart);
+
+        double totalSum = 0.0;
+        for (Product product : products) {
+            int qty = cart.getOrDefault(product.getProductId(), 1);
+            totalSum += (product.getPrice() != null ? product.getPrice() : 0.0) * qty;
+        }
+        model.addAttribute("totalSum", totalSum);
 
         return "cart";
     }
 
     @GetMapping("/cart/remove")
     public String removeFromCart(@RequestParam("productId") Integer productId, HttpSession session) {
-        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
         if (cart != null) {
             cart.remove(productId);
             session.setAttribute("cart", cart);
@@ -360,15 +370,16 @@ public class ProductFilterController {
 
     @PostMapping("/cart/confirm")
     public String confirmCart(HttpSession session, Model model) {
-        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
 
         if (cart == null || cart.isEmpty()) {
             return "redirect:/cart";
         }
 
-        List<Product> products = productRepo.findAllById(cart);
+        List<Product> products = productRepo.findAllById(cart.keySet());
+
         List<ProductParameters> parameters = parameterRepo.findByProduct_ProductIdIn(
-                products.stream().map(Product::getProductId).collect(Collectors.toSet())
+                cart.keySet()
         );
 
         Map<Integer, ProductParameters> paramMap = parameters.stream()
@@ -376,12 +387,22 @@ public class ProductFilterController {
 
         model.addAttribute("products", products);
         model.addAttribute("paramMap", paramMap);
+        model.addAttribute("quantities", cart); //  добавляем количество
 
-        // Очищаем корзину
-        session.removeAttribute("cart");
-        session.removeAttribute("lastFilters");
+        session.removeAttribute("cart"); //  очищаем корзину
 
-        return "proposal"; // создадим эту страницу
+        double totalSum = 0.0;
+        for (Product product : products) {
+            int qty = cart.getOrDefault(product.getProductId(), 1);
+            double price = product.getPrice() != null ? product.getPrice() : 0.0;
+            totalSum += price * qty;
+        }
+        model.addAttribute("totalSum", totalSum);
+        model.addAttribute("quantities", cart); // если ещё не добавлено
+
+
+        return "proposal";
     }
+
 
 }
