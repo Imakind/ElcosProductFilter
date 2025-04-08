@@ -17,7 +17,6 @@ public class ProductParameters {
     private String param4;
     private String param5;
 
-    // ✅ ОБЯЗАТЕЛЬНО добавь геттеры и сеттеры!
     public Integer getId() {
         return id;
     }

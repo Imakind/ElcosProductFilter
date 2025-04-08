@@ -71,10 +71,19 @@
             });
             select.disabled = false;
         }
+
         function addToCart(productId) {
             fetch('/cart/add?productId=' + productId, { method: 'POST' })
-                .then(() => alert('Товар добавлен в корзину!'));
+                .then(() => {
+                    // Увеличиваем счётчик
+                    const counter = document.getElementById('cart-counter');
+                    if (counter) {
+                        const current = parseInt(counter.innerText);
+                        counter.innerText = current + 1;
+                    }
+                });
         }
+
     </script>
 
 </head>
@@ -83,7 +92,7 @@
     <a href="/cart" class="btn btn-outline-primary position-relative">
         🛒 Корзина
         <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-            <span th:text="${cartCount != null ? cartCount : 0}">0</span>
+            <span id="cart-counter" th:text="${cartCount != null ? cartCount : 0}">0</span>
         </span>
     </a>
 </nav>
@@ -91,26 +100,26 @@
 <div class="container">
     <h2 class="mb-4">Фильтр товаров</h2>
     <form method="get" th:action="@{/filter/results}">
-    <div class="row mb-3">
+        <div class="row mb-3">
             <div class="col">
                 <label>Бренд:</label>
                 <select name="brandId" class="form-select" onchange="onBrandChange()">
-                <option value="">Выберите бренд</option>
+                    <option value="">Выберите бренд</option>
                     <option th:each="brand : ${brands}"
                             th:value="${brand.brandId}"
                             th:text="${brand.brandName}"
-                            th:selected="${brand.brandId} == ${param.brandId}">
+                            th:selected="${brand.brandId == filterParams['brandId']}">
                     </option>
                 </select>
             </div>
             <div class="col">
                 <label>Группа товара:</label>
                 <select name="groupId" class="form-select" onchange="onGroupChange()" disabled>
-                <option value="">Выберите группу</option>
+                    <option value="">Выберите группу</option>
                     <option th:each="group : ${groups}"
                             th:value="${group.categoryId}"
                             th:text="${group.name}"
-                            th:selected="${group.categoryId} == ${param.groupId}">
+                            th:selected="${group.categoryId == filterParams['groupId']}">
                     </option>
                 </select>
             </div>
@@ -121,7 +130,7 @@
                     <option th:each="sub : ${subGroups}"
                             th:value="${sub.categoryId}"
                             th:text="${sub.name}"
-                            th:selected="${sub.categoryId} == ${param.subGroupId}">
+                            th:selected="${sub.categoryId == filterParams['subGroupId']}">
                     </option>
                 </select>
             </div>
@@ -134,7 +143,7 @@
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param1List}"
                             th:value="${val}" th:text="${val}"
-                            th:selected="${val} == ${param.param1}">
+                            th:selected="${val == filterParams['param1']}">
                     </option>
                 </select>
             </div>
@@ -144,7 +153,7 @@
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param2List}"
                             th:value="${val}" th:text="${val}"
-                            th:selected="${val} == ${param.param2}">
+                            th:selected="${val == filterParams['param2']}">
                     </option>
                 </select>
             </div>
@@ -154,7 +163,7 @@
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param3List}"
                             th:value="${val}" th:text="${val}"
-                            th:selected="${val} == ${param.param3}">
+                            th:selected="${val == filterParams['param3']}">
                     </option>
                 </select>
             </div>
@@ -164,7 +173,7 @@
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param4List}"
                             th:value="${val}" th:text="${val}"
-                            th:selected="${val} == ${param.param4}">
+                            th:selected="${val == filterParams['param4']}">
                     </option>
                 </select>
             </div>
@@ -174,7 +183,7 @@
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param5List}"
                             th:value="${val}" th:text="${val}"
-                            th:selected="${val} == ${param.param5}">
+                            th:selected="${val == filterParams['param5']}">
                     </option>
                 </select>
             </div>
@@ -187,21 +196,21 @@
     <h4>Результаты фильтрации:</h4>
 
 
-        <div class="row" th:if="${products != null}">
-            <div class="col-md-4 mb-3" th:each="prod : ${products}">
-                <div class="card h-100">
-                    <div class="card-body d-flex justify-content-between align-items-center">
-                        <div>
-                            <h5 class="card-title" th:text="${prod.name}">Название</h5>
-                            <p class="card-text" th:text="'Бренд: ' + ${prod.brand.brandName}"></p>
-                        </div>
-                        <button class="btn btn-success btn-sm" th:attr="onclick='addToCart(' + ${prod.productId} + ')'" title="Добавить в корзину">+</button>
+    <div class="row" th:if="${products != null}">
+        <div class="col-md-4 mb-3" th:each="prod : ${products}">
+            <div class="card h-100">
+                <div class="card-body d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="card-title" th:text="${prod.name}">Название</h5>
+                        <p class="card-text" th:text="'Бренд: ' + ${prod.brand.brandName}"></p>
                     </div>
+                    <button class="btn btn-success btn-sm" th:attr="onclick='addToCart(' + ${prod.productId} + ')'" title="Добавить в корзину">+</button>
                 </div>
             </div>
         </div>
+    </div>
 
-
+    <!-- Пагинация -->
     <div class="d-flex justify-content-center mt-4" th:if="${totalPages > 1}">
         <nav>
             <ul class="pagination">
@@ -209,7 +218,17 @@
                 <!--  Первая страница -->
                 <li class="page-item" th:classappend="${currentPage == 0} ? ' disabled'">
                     <a class="page-link"
-                       th:href="@{/filter/results(brandId=${param.brandId}, groupId=${param.groupId}, subGroupId=${param.subGroupId}, param1=${param.param1}, param2=${param.param2}, param3=${param.param3}, param4=${param.param4}, param5=${param.param5}, page=0)}">⏪</a>
+                       th:href="@{/filter/results(
+    brandId=${filterParams['brandId']},
+    groupId=${filterParams['groupId']},
+    subGroupId=${filterParams['subGroupId']},
+    param1=${filterParams['param1']},
+    param2=${filterParams['param2']},
+    param3=${filterParams['param3']},
+    param4=${filterParams['param4']},
+    param5=${filterParams['param5']},
+    page=0)}"
+                    >⏪</a>
                 </li>
 
                 <!-- Цифры -->
@@ -217,14 +236,14 @@
                     th:each="i : ${#numbers.sequence((currentPage > 2 ? currentPage - 2 : 0), (currentPage + 2 < totalPages ? currentPage + 2 : totalPages - 1))}"
                     th:classappend="${i == currentPage} ? ' active'">
                     <a class="page-link"
-                       th:href="@{/filter/results(page=${i}, brandId=${param.brandId}, groupId=${param.groupId}, subGroupId=${param.subGroupId}, param1=${param.param1}, param2=${param.param2}, param3=${param.param3}, param4=${param.param4}, param5=${param.param5})}"
+                       th:href="@{/filter/results(page=${i}, brandId=${filterParams['brandId']}, groupId=${filterParams['groupId']}, subGroupId=${filterParams['subGroupId']}, param1=${filterParams['param1']}, param2=${filterParams['param2']}, param3=${filterParams['param3']}, param4=${filterParams['param4']}, param5=${filterParams['param5']})}"
                        th:text="${i + 1}">1</a>
                 </li>
 
                 <!--  Последняя страница -->
                 <li class="page-item" th:classappend="${currentPage + 1 >= totalPages} ? ' disabled'">
                     <a class="page-link"
-                       th:href="@{/filter/results(brandId=${param.brandId}, groupId=${param.groupId}, subGroupId=${param.subGroupId}, param1=${param.param1}, param2=${param.param2}, param3=${param.param3}, param4=${param.param4}, param5=${param.param5}, page=${totalPages - 1})}">⏩</a>
+                       th:href="@{/filter/results(brandId=${filterParams['brandId']}, groupId=${filterParams['groupId']}, subGroupId=${filterParams['subGroupId']}, param1=${filterParams['param1']}, param2=${filterParams['param2']}, param3=${filterParams['param3']}, param4=${filterParams['param4']}, param5=${filterParams['param5']}, page=${totalPages - 1})}">⏩</a>
                 </li>
 
             </ul>

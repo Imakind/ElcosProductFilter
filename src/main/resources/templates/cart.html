@@ -8,18 +8,55 @@
 <body class="p-4">
 <div class="container">
     <h2>Корзина</h2>
+    <a th:href="@{/filter/results(
+    brandId=${filterParams['brandId']},
+    groupId=${filterParams['groupId']},
+    subGroupId=${filterParams['subGroupId']},
+    param1=${filterParams['param1']},
+    param2=${filterParams['param2']},
+    param3=${filterParams['param3']},
+    param4=${filterParams['param4']},
+    param5=${filterParams['param5']}
+)}" class="btn btn-secondary mb-3">← Назад к фильтру</a>
+
+
+
     <div th:if="${#lists.isEmpty(cartProducts)}">
         <p>Корзина пуста.</p>
     </div>
     <div th:each="product : ${cartProducts}" class="card mb-2">
-        <div class="card-body d-flex justify-content-between align-items-center">
-            <div>
-                <h5 class="card-title" th:text="${product.name}">Название</h5>
-                <p class="card-text" th:text="'Бренд: ' + ${product.brand.brandName}"></p>
+        <div class="card-body">
+            <h5 th:text="${product.name}">Название</h5>
+            <p th:text="'Бренд: ' + ${product.brand.brandName}"></p>
+
+            <div th:each="prm : ${cartParams}"
+                 th:if="${prm.product.productId} == ${product.productId}">
+                <ul>
+                    <li th:text="'Параметр 1: ' + ${prm.param1}"></li>
+                    <li th:text="'Параметр 2: ' + ${prm.param2}"></li>
+                    <li th:text="'Параметр 3: ' + ${prm.param3}"></li>
+                    <li th:text="'Параметр 4: ' + ${prm.param4}"></li>
+                    <li th:text="'Параметр 5: ' + ${prm.param5}"></li>
+                </ul>
             </div>
-            <a th:href="@{'/cart/remove?productId=' + ${product.productId}}" class="btn btn-danger">Удалить</a>
+
+            <p>
+                Категории:
+                <span th:each="cat : ${productCategoriesMap[product.productId]}"
+                      th:text="${cat.name} + ' '">Категория</span>
+            </p>
+
+            <p th:text="'Цена: ' + ${product.price} + ' ₸'"></p>
+
+
+            <a th:href="@{'/cart/remove?productId=' + ${product.productId}}" class="btn btn-danger mt-2">Удалить</a>
         </div>
     </div>
+
+    <form th:action="@{/cart/confirm}" method="post">
+        <button type="submit" class="btn btn-success mt-3">Подтвердить заказ</button>
+    </form>
+
 </div>
 </body>
 </html>

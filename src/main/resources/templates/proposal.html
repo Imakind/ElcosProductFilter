@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Коммерческое предложение</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="p-4">
+<div class="container">
+    <h2>Коммерческое предложение</h2>
+    <table class="table table-bordered mt-4">
+        <thead>
+        <tr>
+            <th>Наименование</th>
+            <th>Бренд</th>
+            <th>Параметры</th>
+            <th>Цена</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="product : ${products}">
+            <td th:text="${product.name}">Название</td>
+            <td th:text="${product.brand.brandName}">Бренд</td>
+            <td>
+                <ul th:if="${paramMap[product.productId] != null}">
+                    <li th:text="'Параметр 1: ' + ${paramMap[product.productId].param1}"></li>
+                    <li th:text="'Параметр 2: ' + ${paramMap[product.productId].param2}"></li>
+                    <li th:text="'Параметр 3: ' + ${paramMap[product.productId].param3}"></li>
+                    <li th:text="'Параметр 4: ' + ${paramMap[product.productId].param4}"></li>
+                    <li th:text="'Параметр 5: ' + ${paramMap[product.productId].param5}"></li>
+                </ul>
+            </td>
+            <td th:text="${product.price} + ' ₸'">Цена</td>
+        </tr>
+        </tbody>
+    </table>
+
+    <a href="/" class="btn btn-primary">← Вернуться к фильтру</a>
+</div>
+</body>
+</html>

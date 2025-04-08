@@ -5,6 +5,7 @@ import com.example.productfilter.model.Product;
 import com.example.productfilter.model.ProductCategories;
 import com.example.productfilter.model.ProductParameters;
 import com.example.productfilter.repository.*;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -33,15 +34,20 @@ public class ProductFilterController {
 
 
     @GetMapping("/")
-    public String index(Model model) {
+    public String index(Model model, HttpSession session) {
         model.addAttribute("brands", brandRepo.findAll());
         model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
-        model.addAttribute("subGroups", categoryRepo.findByParentCategoryId(1));
+        model.addAttribute("subGroups", List.of());
         model.addAttribute("param1List", parameterRepo.findDistinctParam1());
         model.addAttribute("param2List", parameterRepo.findDistinctParam2());
         model.addAttribute("param3List", parameterRepo.findDistinctParam3());
         model.addAttribute("param4List", parameterRepo.findDistinctParam4());
         model.addAttribute("param5List", parameterRepo.findDistinctParam5());
+
+        model.addAttribute("filterParams", new HashMap<String, Object>());
+
+        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
+        model.addAttribute("cartCount", cart != null ? cart.size() : 0);
 
         return "filter";
     }
@@ -150,6 +156,7 @@ public class ProductFilterController {
             @RequestParam(value = "param4", required = false) String param4,
             @RequestParam(value = "param5", required = false) String param5,
             @RequestParam(value = "page", defaultValue = "0") int page,
+            HttpSession session,
             Model model) {
 
         int pageSize = 21;
@@ -176,11 +183,15 @@ public class ProductFilterController {
         selectedParams.put("param3", param3);
         selectedParams.put("param4", param4);
         selectedParams.put("param5", param5);
-        model.addAttribute("param", selectedParams);
+        model.addAttribute("filterParams", selectedParams);
 
 
         List<Product> products = productRepo.findAll();
         Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
+
+
+        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
+        model.addAttribute("cartCount", cart != null ? cart.size() : 0);
 
         //  Фильтрация по бренду
         if (brandId != null) {
@@ -269,6 +280,9 @@ public class ProductFilterController {
         model.addAttribute("startPage", startPage);
         model.addAttribute("endPage", endPage);
 
+        session.setAttribute("lastFilters", selectedParams);
+
+
         return "filter";
     }
 
@@ -290,8 +304,84 @@ public class ProductFilterController {
                 ? productRepo.findAllById(cart)
                 : List.of();
 
+        // Параметры товаров
+        List<ProductParameters> parameters = parameterRepo.findByProduct_ProductIdIn(
+                products.stream().map(Product::getProductId).collect(Collectors.toSet())
+        );
+
         model.addAttribute("cartProducts", products);
+        model.addAttribute("cartParams", parameters);
+
+        // ✅ Оптимизированная загрузка категорий
+        Set<Integer> productIds = products.stream()
+                .map(Product::getProductId)
+                .collect(Collectors.toSet());
+
+        List<ProductCategories> links = productCategoriesRepo.findByProductIdIn(productIds);
+        Set<Integer> categoryIds = links.stream()
+                .map(ProductCategories::getCategoryId)
+                .collect(Collectors.toSet());
+
+        List<Category> allCategories = categoryRepo.findAllById(categoryIds);
+        Map<Integer, Category> categoryMap = allCategories.stream()
+                .collect(Collectors.toMap(Category::getCategoryId, c -> c));
+
+        Map<Integer, List<Category>> productIdToCategories = new HashMap<>();
+        for (ProductCategories link : links) {
+            Integer productId = link.getProductId();
+            Integer categoryId = link.getCategoryId();
+
+            Category category = categoryMap.get(categoryId);
+            if (category != null) {
+                productIdToCategories
+                        .computeIfAbsent(productId, k -> new ArrayList<>())
+                        .add(category);
+            }
+        }
+
+        model.addAttribute("productCategoriesMap", productIdToCategories);
+
+        // 🔁 Восстановим параметры фильтра (если надо вернуться)
+        Map<String, Object> lastFilters = (Map<String, Object>) session.getAttribute("lastFilters");
+        model.addAttribute("filterParams", lastFilters != null ? lastFilters : new HashMap<>());
+
         return "cart";
+    }
+
+    @GetMapping("/cart/remove")
+    public String removeFromCart(@RequestParam("productId") Integer productId, HttpSession session) {
+        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
+        if (cart != null) {
+            cart.remove(productId);
+            session.setAttribute("cart", cart);
+        }
+        return "redirect:/cart";
+    }
+
+    @PostMapping("/cart/confirm")
+    public String confirmCart(HttpSession session, Model model) {
+        List<Integer> cart = (List<Integer>) session.getAttribute("cart");
+
+        if (cart == null || cart.isEmpty()) {
+            return "redirect:/cart";
+        }
+
+        List<Product> products = productRepo.findAllById(cart);
+        List<ProductParameters> parameters = parameterRepo.findByProduct_ProductIdIn(
+                products.stream().map(Product::getProductId).collect(Collectors.toSet())
+        );
+
+        Map<Integer, ProductParameters> paramMap = parameters.stream()
+                .collect(Collectors.toMap(p -> p.getProduct().getProductId(), p -> p));
+
+        model.addAttribute("products", products);
+        model.addAttribute("paramMap", paramMap);
+
+        // Очищаем корзину
+        session.removeAttribute("cart");
+        session.removeAttribute("lastFilters");
+
+        return "proposal"; // создадим эту страницу
     }
 
 }

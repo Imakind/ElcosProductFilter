@@ -14,6 +14,16 @@ public class Product {
     @JoinColumn(name = "brand_id")
     private Brand brand;
 
+    private Double price;
+
+    public Double getPrice() {
+        return price;
+    }
+
+    public void setPrice(Double price) {
+        this.price = price;
+    }
+
     public Integer getProductId() {
         return productId;
     }
