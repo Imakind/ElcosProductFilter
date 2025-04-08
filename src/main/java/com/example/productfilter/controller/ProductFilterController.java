@@ -6,6 +6,7 @@ import com.example.productfilter.model.ProductCategories;
 import com.example.productfilter.model.ProductParameters;
 import com.example.productfilter.repository.*;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -17,7 +18,16 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import com.lowagie.text.Document;
+import com.lowagie.text.DocumentException;
+import com.lowagie.text.Paragraph;
+import com.lowagie.text.Font;
+import com.lowagie.text.pdf.PdfWriter;
+import com.lowagie.text.pdf.PdfPTable;
 
+
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -400,8 +410,71 @@ public class ProductFilterController {
         model.addAttribute("totalSum", totalSum);
         model.addAttribute("quantities", cart); // если ещё не добавлено
 
+        session.setAttribute("proposalCart", cart);
+        session.setAttribute("proposalProducts", products);
+        session.setAttribute("proposalTotal", totalSum);
+
 
         return "proposal";
+    }
+
+    @GetMapping("/proposal/pdf")
+    public void downloadProposalPdf(HttpServletResponse response, HttpSession session) throws IOException {
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("proposalCart");
+        List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
+        Double totalSum = (Double) session.getAttribute("proposalTotal");
+
+        if (cart == null || products == null || cart.isEmpty()) {
+            response.sendRedirect("/cart");
+            return;
+        }
+
+
+
+            // Преобразуем в сет именно Integer, иначе будет ошибка типов
+        Set<Integer> productIds = new HashSet<>(cart.keySet());
+
+        response.setContentType("application/pdf");
+        response.setHeader("Content-Disposition", "attachment; filename=proposal.pdf");
+
+        try (OutputStream out = response.getOutputStream()) {
+            Document document = new Document();
+            PdfWriter.getInstance(document, out);
+            document.open();
+
+            Font titleFont = new Font(Font.HELVETICA, 18, Font.BOLD);
+            document.add(new Paragraph("\u041a\u043e\u043c\u043c\u0435\u0440\u0447\u0435\u0441\u043a\u043e\u0435 \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0435", titleFont));
+            document.add(new Paragraph(" "));
+
+            PdfPTable table = new PdfPTable(4);
+            table.setWidthPercentage(100);
+            table.addCell("\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435");
+            table.addCell("\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e");
+            table.addCell("\u0426\u0435\u043d\u0430 \u0437\u0430 \u0435\u0434\u0438\u043d\u0438\u0446\u0443");
+            table.addCell("\u0421\u0443\u043c\u043c\u0430");
+
+            double total = 0;
+
+            for (Product product : products) {
+                int qty = cart.getOrDefault(product.getProductId(), 1);
+                double price = product.getPrice() != null ? product.getPrice().doubleValue() : 0.0;
+                double sum = price * qty;
+                total += sum;
+
+                table.addCell(product.getName());
+                table.addCell(String.valueOf(qty));
+                table.addCell(String.format("%.2f", price));
+                table.addCell(String.format("%.2f", sum));
+            }
+
+            document.add(table);
+            document.add(new Paragraph(" "));
+            document.add(new Paragraph("\u0418\u0442\u043e\u0433\u043e: " + String.format("%.2f", total) + " \u0442\u0433"));
+
+            document.close();
+        } catch (DocumentException e) {
+            throw new IOException("Error while generating PDF", e);
+        }
     }
 
 
