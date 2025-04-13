@@ -1,12 +1,17 @@
-# Этап сборки
-FROM maven:3.9.6-eclipse-temurin-21 AS build
-WORKDIR /app
-COPY . .
-RUN mvn clean package -DskipTests
+# Use Java 21 base image
+FROM eclipse-temurin:21-jdk
 
-# Этап запуска
-FROM eclipse-temurin:21-jre
+# Create app directory
 WORKDIR /app
-COPY --from=build /app/target/product-filter-0.0.1-SNAPSHOT.jar app.jar
+
+# Copy everything to container
+COPY . .
+
+# Build the project using Maven
+RUN ./mvnw clean package -DskipTests
+
+# Expose port (change if your app uses something else)
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+
+# Run the app
+CMD ["java", "-jar", "target/*.jar"]
