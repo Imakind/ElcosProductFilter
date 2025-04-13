@@ -8,4 +8,4 @@ RUN chmod +x ./mvnw && ./mvnw clean package -DskipTests
 
 EXPOSE 8080
 
-CMD ["java", "-jar", "target/ProductFilterApp-0.0.1-SNAPSHOT.jar"]
+CMD ["java", "-jar", "target/product-filter-0.0.1-SNAPSHOT.jar"]
