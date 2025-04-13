@@ -8,7 +8,8 @@ WORKDIR /app
 COPY . .
 
 # Build the project using Maven
-RUN ./mvnw clean package -DskipTests
+RUN apt-get update && apt-get install -y maven && mvn clean package -DskipTests
+
 
 # Expose port (change if your app uses something else)
 EXPOSE 8080
