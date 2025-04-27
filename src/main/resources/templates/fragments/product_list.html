@@ -1,0 +1,16 @@
+<div id="product-list" th:fragment="productList">
+    <div class="list-group-item d-flex justify-content-between align-items-center" th:each="prod : ${products}" th:id="'product-' + ${prod.productId}">
+        <div>
+            <h5 class="mb-1" th:text="${prod.name}">Название товара</h5>
+            <small th:text="'Бренд: ' + ${prod.brand.brandName}"></small><br>
+            <small class="text-danger" th:if="${prod.price != null}" th:text="'Цена: ' + ${#strings.replace(#numbers.formatDecimal(prod.price, 1, 'COMMA', 2, 'POINT'), ',', ' ')} + ' ₸'"></small>
+            <small class="text-danger" th:if="${prod.price == null}" th:text="'Цена: Не указана'"></small><br>
+        </div>
+
+        <button class="btn btn-success btn-sm"
+                th:id="'btn-' + ${prod.productId}"
+                th:attr="onclick='addToCart(' + ${prod.productId} + ')'"
+                title="Добавить в корзину">+
+        </button>
+    </div>
+</div>

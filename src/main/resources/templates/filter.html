@@ -75,14 +75,31 @@
         function addToCart(productId) {
             fetch('/cart/add?productId=' + productId, { method: 'POST' })
                 .then(() => {
-                    // Увеличиваем счётчик
+                    // Обновляем глобальный счётчик корзины в шапке
                     const counter = document.getElementById('cart-counter');
                     if (counter) {
                         const current = parseInt(counter.innerText);
                         counter.innerText = current + 1;
                     }
+
+                    // Найти кнопку и блок товара
+                    const btn = document.getElementById('btn-' + productId);
+                    const productBlock = document.getElementById('product-' + productId);
+
+                    if (btn && productBlock) {
+                        // Считаем количество нажатий
+                        if (!btn.dataset.count) btn.dataset.count = 0;
+                        btn.dataset.count = parseInt(btn.dataset.count) + 1;
+
+                        // Только меняем текст кнопки!
+                        btn.innerText = 'Добавить (' + btn.dataset.count + ')';
+
+                        // Делаем рамку товара
+                        productBlock.classList.add('border', 'border-success', 'rounded', 'shadow-sm', 'bg-light');
+                    }
                 });
         }
+
 
     </script>
 
@@ -188,71 +205,189 @@
                 </select>
             </div>
         </div>
-
         <button type="submit" class="btn btn-primary">Применить</button>
     </form>
 
     <hr class="my-4">
     <h4>Результаты фильтрации:</h4>
+    <!-- КНОПКА "СОРТИРОВАТЬ" -->
+    <div class="d-flex justify-content-end mb-3">
+        <button id="sortButton" class="btn btn-outline-secondary">
+            🧹 Сортировать
+        </button>
+    </div>
 
+    <!-- МОДАЛЬНОЕ ОКНО СОРТИРОВКИ -->
+    <div id="sortModal" style="
+    display: none;
+    position: fixed;
+    top: 30%;
+    left: 50%;
+    transform: translate(-50%, -30%);
+    background: white;
+    border: 1px solid #ccc;
+    padding: 20px;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    border-radius: 8px;
+">
+        <h5>Сортировать по:</h5>
+        <h5>Сортировать по:</h5>
+        <div>
+            <input type="checkbox" name="sortOption" value="priceAsc" id="priceAsc">
+            <label for="priceAsc">Цена (по возрастанию)</label><br>
 
-    <div class="row" th:if="${products != null}">
-        <div class="col-md-4 mb-3" th:each="prod : ${products}">
-            <div class="card h-100">
-                <div class="card-body d-flex justify-content-between align-items-center">
-                    <div>
-                        <h5 class="card-title" th:text="${prod.name}">Название</h5>
-                        <p class="card-text" th:text="'Бренд: ' + ${prod.brand.brandName}"></p>
-                    </div>
-                    <button class="btn btn-success btn-sm" th:attr="onclick='addToCart(' + ${prod.productId} + ')'" title="Добавить в корзину">+</button>
-                </div>
-            </div>
+            <input type="checkbox" name="sortOption" value="priceDesc" id="priceDesc">
+            <label for="priceDesc">Цена (по убыванию)</label><br>
+
+            <input type="checkbox" name="sortOption" value="nameAsc" id="nameAsc">
+            <label for="nameAsc">Название (A-Z)</label><br>
+
+            <input type="checkbox" name="sortOption" value="nameDesc" id="nameDesc">
+            <label for="nameDesc">Название (Z-A)</label><br>
+
+            <input type="checkbox" name="sortOption" value="brandAsc" id="brandAsc">
+            <label for="brandAsc">Бренд (A-Z)</label><br>
+
+            <input type="checkbox" name="sortOption" value="brandDesc" id="brandDesc">
+            <label for="brandDesc">Бренд (Z-A)</label><br>
+        </div>
+        <div class="d-flex justify-content-end mt-3">
+            <button class="btn btn-primary" onclick="applySort()">✅ Применить</button>
         </div>
     </div>
 
-    <!-- Пагинация -->
-    <div class="d-flex justify-content-center mt-4" th:if="${totalPages > 1}">
-        <nav>
-            <ul class="pagination">
 
-                <!--  Первая страница -->
-                <li class="page-item" th:classappend="${currentPage == 0} ? ' disabled'">
-                    <a class="page-link"
-                       th:href="@{/filter/results(
-    brandId=${filterParams['brandId']},
-    groupId=${filterParams['groupId']},
-    subGroupId=${filterParams['subGroupId']},
-    param1=${filterParams['param1']},
-    param2=${filterParams['param2']},
-    param3=${filterParams['param3']},
-    param4=${filterParams['param4']},
-    param5=${filterParams['param5']},
-    page=0)}"
-                    >⏪</a>
-                </li>
 
-                <!-- Цифры -->
-                <li class="page-item"
-                    th:each="i : ${#numbers.sequence((currentPage > 2 ? currentPage - 2 : 0), (currentPage + 2 < totalPages ? currentPage + 2 : totalPages - 1))}"
-                    th:classappend="${i == currentPage} ? ' active'">
-                    <a class="page-link"
-                       th:href="@{/filter/results(page=${i}, brandId=${filterParams['brandId']}, groupId=${filterParams['groupId']}, subGroupId=${filterParams['subGroupId']}, param1=${filterParams['param1']}, param2=${filterParams['param2']}, param3=${filterParams['param3']}, param4=${filterParams['param4']}, param5=${filterParams['param5']})}"
-                       th:text="${i + 1}">1</a>
-                </li>
 
-                <!--  Последняя страница -->
-                <li class="page-item" th:classappend="${currentPage + 1 >= totalPages} ? ' disabled'">
-                    <a class="page-link"
-                       th:href="@{/filter/results(brandId=${filterParams['brandId']}, groupId=${filterParams['groupId']}, subGroupId=${filterParams['subGroupId']}, param1=${filterParams['param1']}, param2=${filterParams['param2']}, param3=${filterParams['param3']}, param4=${filterParams['param4']}, param5=${filterParams['param5']}, page=${totalPages - 1})}">⏩</a>
-                </li>
+    <div id="product-list" class="list-group" th:if="${products != null}">
+        <div class="list-group-item d-flex justify-content-between align-items-center"
+             th:each="prod : ${products}"
+             th:id="'product-' + ${prod.productId}">
+            <div>
+                <h5 class="mb-1" th:text="${prod.name}">Название товара</h5>
+                <small th:text="'Бренд: ' + ${prod.brand.brandName}"></small><br>
+                <small class="text-danger" th:if="${prod.price != null}"
+                       th:text="'Цена: ' + ${#strings.replace(#numbers.formatDecimal(prod.price, 1, 'COMMA', 2, 'POINT'), ',', ' ')} + ' ₸'"></small>
+                <small class="text-danger" th:if="${prod.price == null}" th:text="'Цена: Не указана'"></small><br>
+            </div>
 
-            </ul>
-        </nav>
+            <button class="btn btn-success btn-sm"
+                    th:id="'btn-' + ${prod.productId}"
+                    th:attr="onclick='addToCart(' + ${prod.productId} + ')'">
+                +
+            </button>
+        </div>
     </div>
-
 
 
 
 </div>
+<div id="loader" class="text-center my-4" style="display: none;">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+</div>
+
+<script th:inline="javascript">
+    let currentPage = /*[[${currentPage}]]*/ 0;
+    const totalPages = /*[[${totalPages}]]*/ 1;
+    let loading = false;
+
+    window.addEventListener('scroll', () => {
+        if (loading) return;
+        if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 200) {
+            if (currentPage + 1 < totalPages) {
+                loadNextPage();
+            }
+        }
+    });
+
+    function loadNextPage() {
+        loading = true;
+        document.getElementById('loader').style.display = 'block';
+        currentPage++;
+
+        const params = new URLSearchParams({
+            brandId: document.querySelector('select[name="brandId"]').value,
+            groupId: document.querySelector('select[name="groupId"]').value,
+            subGroupId: document.querySelector('select[name="subGroupId"]').value,
+            param1: document.querySelector('select[name="param1"]').value,
+            param2: document.querySelector('select[name="param2"]').value,
+            param3: document.querySelector('select[name="param3"]').value,
+            param4: document.querySelector('select[name="param4"]').value,
+            param5: document.querySelector('select[name="param5"]').value,
+            sort: (new URLSearchParams(window.location.search)).get('sort'), // ВАЖНО: берем текущую сортировку из URL!
+            page: currentPage
+        });
+
+        fetch('/filter/results?' + params.toString(), {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+            .then(response => response.text())
+            .then(html => {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = html;
+                const newProducts = tempDiv.querySelectorAll('.list-group-item');
+                newProducts.forEach(item => {
+                    item.style.opacity = '0';
+                    item.style.transition = 'opacity 0.5s ease';
+                    document.getElementById('product-list').appendChild(item);
+                    setTimeout(() => {
+                        item.style.opacity = '1';
+                    }, 50);
+                });
+                document.getElementById('loader').style.display = 'none';
+                loading = false;
+            })
+            .catch(error => {
+                console.error('Ошибка загрузки товаров:', error);
+                document.getElementById('loader').style.display = 'none';
+                loading = false;
+            });
+    }
+
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const sortButton = document.getElementById('sortButton');
+        const sortModal = document.getElementById('sortModal');
+
+        sortButton.addEventListener('click', function () {
+            if (sortModal.style.display === 'none') {
+                sortModal.style.display = 'block';
+            } else {
+                sortModal.style.display = 'none';
+            }
+        });
+    });
+
+    function applySort() {
+        const selected = document.querySelectorAll('input[name="sortOption"]:checked');
+        let sortValues = [];
+        selected.forEach(item => sortValues.push(item.value));
+
+        if (sortValues.length > 0) {
+            const params = new URLSearchParams({
+                brandId: document.querySelector('select[name="brandId"]').value,
+                groupId: document.querySelector('select[name="groupId"]').value,
+                subGroupId: document.querySelector('select[name="subGroupId"]').value,
+                param1: document.querySelector('select[name="param1"]').value,
+                param2: document.querySelector('select[name="param2"]').value,
+                param3: document.querySelector('select[name="param3"]').value,
+                param4: document.querySelector('select[name="param4"]').value,
+                param5: document.querySelector('select[name="param5"]').value,
+                sort: sortValues.join(',') // объединяем сортировки через запятую
+            });
+
+            // Переходим на новый URL
+            window.location.href = '/filter/results?' + params.toString();
+        }
+    }
+
+</script>
+
+
 </body>
 </html>
