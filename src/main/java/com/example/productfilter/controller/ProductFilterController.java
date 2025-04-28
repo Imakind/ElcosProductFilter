@@ -1,9 +1,6 @@
 package com.example.productfilter.controller;
 
-import com.example.productfilter.model.Category;
-import com.example.productfilter.model.Product;
-import com.example.productfilter.model.ProductCategories;
-import com.example.productfilter.model.ProductParameters;
+import com.example.productfilter.model.*;
 import com.example.productfilter.repository.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -489,6 +486,63 @@ public class ProductFilterController {
         } catch (DocumentException e) {
             throw new IOException("Error while generating PDF", e);
         }
+    }
+
+
+    @GetMapping("/admin/add-product")
+    public String showAddProductForm(Model model) {
+        model.addAttribute("brands", brandRepo.findAll());
+        model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
+        model.addAttribute("subGroups", List.of());
+        model.addAttribute("productForm", new ProductForm());
+        return "add_product";
+    }
+
+    @PostMapping("/admin/add-product")
+    public String addProduct(ProductForm productForm, Model model) {
+        // Проверяем, существует ли товар с таким же артикулом
+        if (productRepo.existsByArticleCode(productForm.getArticleCode())) {
+            model.addAttribute("brands", brandRepo.findAll());
+            model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
+            model.addAttribute("subGroups", List.of());
+            model.addAttribute("productForm", productForm);
+            model.addAttribute("error", "Товар с таким артикулом уже существует!");
+            return "add_product"; // вернёмся обратно на страницу с ошибкой
+        }
+
+        // Сохраняем товар
+        Product product = new Product();
+        product.setName(productForm.getName());
+        product.setPrice(productForm.getPrice() != null ? productForm.getPrice() : 0.0);
+        product.setBrand(brandRepo.findById(productForm.getBrandId()).orElse(null));
+        product.setArticleCode(productForm.getArticleCode());
+        product = productRepo.save(product);
+
+        // Параметры
+        ProductParameters params = new ProductParameters();
+        params.setProduct(product);
+        params.setParam1(productForm.getParam1());
+        params.setParam2(productForm.getParam2());
+        params.setParam3(productForm.getParam3());
+        params.setParam4(productForm.getParam4());
+        params.setParam5(productForm.getParam5());
+        parameterRepo.save(params);
+
+        // Категории
+        if (productForm.getGroupId() != null) {
+            ProductCategories pc = new ProductCategories();
+            pc.setProductId(product.getProductId());
+            pc.setCategoryId(productForm.getGroupId());
+            productCategoriesRepo.save(pc);
+        }
+        if (productForm.getSubGroupId() != null) {
+            ProductCategories pc = new ProductCategories();
+            pc.setProductId(product.getProductId());
+            pc.setCategoryId(productForm.getSubGroupId());
+            productCategoriesRepo.save(pc);
+        }
+
+        return "redirect:/";
     }
 
 

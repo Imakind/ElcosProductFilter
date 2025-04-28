@@ -105,14 +105,23 @@
 
 </head>
 <body class="p-4">
-<nav class="d-flex justify-content-end mb-4">
-    <a href="/cart" class="btn btn-outline-primary position-relative">
-        🛒 Корзина
-        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-            <span id="cart-counter" th:text="${cartCount != null ? cartCount : 0}">0</span>
-        </span>
-    </a>
+<nav class="d-flex justify-content-between mb-4">
+    <div>
+        <a href="/admin/add-product" class="btn btn-success">
+            ➕ Добавить товар
+        </a>
+    </div>
+
+    <div>
+        <a href="/cart" class="btn btn-outline-primary position-relative">
+            🛒 Корзина
+            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                <span id="cart-counter" th:text="${cartCount != null ? cartCount : 0}">0</span>
+            </span>
+        </a>
+    </div>
 </nav>
+
 
 <div class="container">
     <h2 class="mb-4">Фильтр товаров</h2>

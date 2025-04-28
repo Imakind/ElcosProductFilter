@@ -6,6 +6,7 @@ import jakarta.persistence.*;
 @Table(name="products")
 public class Product {
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer productId;
 
     private String name;
@@ -16,6 +17,19 @@ public class Product {
 
     @Column(name = "base_price")
     private Double price;
+
+    @Column(name = "article_code", nullable = false)
+    private String articleCode;
+
+    // И геттер-сеттер
+    public String getArticleCode() {
+        return articleCode;
+    }
+
+    public void setArticleCode(String articleCode) {
+        this.articleCode = articleCode;
+    }
+
 
     public Double getPrice() {
         return price;
