@@ -8,6 +8,19 @@
 <body class="p-4">
 <div class="container">
     <h2>Добавить новый товар</h2>
+    <a th:href="@{/filter/results(
+    brandId=${filterParams['brandId']},
+    groupId=${filterParams['groupId']},
+    subGroupId=${filterParams['subGroupId']},
+    param1=${filterParams['param1']},
+    param2=${filterParams['param2']},
+    param3=${filterParams['param3']},
+    param4=${filterParams['param4']},
+    param5=${filterParams['param5']}
+)}"
+       class="btn btn-secondary mb-3">
+        ← Вернуться к фильтру
+    </a>
 
     <form th:action="@{/admin/add-product}" method="post">
     <div class="mb-3">
@@ -49,23 +62,36 @@
 
         <div class="mb-3">
             <label for="param1" class="form-label">Параметр 1</label>
-            <input type="text" class="form-control" id="param1" name="param1">
+            <input type="text"
+                   id="param1"
+                   name="param1"
+                   class="form-control"
+                   list="param1Options"
+                   th:value="${filterParams['param1']}"
+            placeholder="Выберите или введите новое значение">
+
+            <datalist id="param1Options">
+                <option th:each="val : ${param1List}" th:value="${val}"></option>
+            </datalist>
         </div>
+
+
+
         <div class="mb-3">
             <label for="param2" class="form-label">Параметр 2</label>
             <input type="text" class="form-control" id="param2" name="param2">
         </div>
         <div class="mb-3">
-            <label for="param1" class="form-label">Параметр 3</label>
-            <input type="text" class="form-control" id="param3" name="param1">
+            <label for="param3" class="form-label">Параметр 3</label>
+            <input type="text" class="form-control" id="param3" name="param3">
         </div>
         <div class="mb-3">
-            <label for="param2" class="form-label">Параметр 4</label>
-            <input type="text" class="form-control" id="param4" name="param2">
+            <label for="param4" class="form-label">Параметр 4</label>
+            <input type="text" class="form-control" id="param4" name="param4">
         </div>
         <div class="mb-3">
-            <label for="param1" class="form-label">Параметр 5</label>
-            <input type="text" class="form-control" id="param5" name="param1">
+            <label for="param5" class="form-label">Параметр 5</label>
+            <input type="text" class="form-control" id="param5" name="param5">
         </div>
 
         <div class="mb-3">

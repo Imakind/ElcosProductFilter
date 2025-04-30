@@ -21,46 +21,256 @@
 
 
 
+
     <div th:if="${#lists.isEmpty(cartProducts)}">
         <p>Корзина пуста.</p>
     </div>
-    <div th:each="product : ${cartProducts}" class="card mb-2">
+    <div th:each="product : ${cartProducts}" th:id="'product-' + ${product.productId}" class="card mb-2">
         <div class="card-body">
             <h5 th:text="${product.name}">Название</h5>
             <p th:text="'Бренд: ' + ${product.brand.brandName}"></p>
 
-            <div th:each="prm : ${cartParams}"
-                 th:if="${prm.product.productId} == ${product.productId}">
-                <ul>
-                    <li th:text="'Параметр 1: ' + ${prm.param1}"></li>
-                    <li th:text="'Параметр 2: ' + ${prm.param2}"></li>
-                    <li th:text="'Параметр 3: ' + ${prm.param3}"></li>
-                    <li th:text="'Параметр 4: ' + ${prm.param4}"></li>
-                    <li th:text="'Параметр 5: ' + ${prm.param5}"></li>
-                </ul>
-                <td th:text="'Кол-во: ' + ${quantities[product.productId]}">1</td>
-                <br>
+            <!-- Базовая цена -->
+            <p>Базовая цена: <span th:text="${product.price}">0</span> ₸</p>
+
+            <div class="input-group mt-2" style="width: 160px;">
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        th:onclick="'removeFromCartInCartPage(' + ${product.productId} + ')'">➖</button>
+
+                <input type="number" min="1" class="form-control form-control-sm text-center"
+                       th:id="'counter-' + ${product.productId}"
+                       th:value="${quantities[product.productId]}"
+                       onchange="manualQuantityChange(this)"
+                       style="max-width: 60px;">
+
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        th:onclick="'addToCartInCartPage(' + ${product.productId} + ')'">➕</button>
             </div>
 
-            <p>
-                Категории:
-                <span th:each="cat : ${productCategoriesMap[product.productId]}"
-                      th:text="${cat.name} + ' '">Категория</span>
+
+            <!-- Цена за количество -->
+            <p class="mt-2">
+                Цена за количество:<span th:id="'price-for-quantity-' + ${product.productId}"
+                                         th:attr="data-base-price=${product.price}"
+                                         th:text="${product.price * quantities[product.productId]}">0</span>
             </p>
 
-            <p th:text="'Цена: ' + ${product.price} + ' ₸'"></p>
+            <!-- Коэффициент -->
+            <div class="mt-2">
+                Коэффициент:
+                <input type="number" step="0.01"
+                       th:id="'coefficient-' + ${product.productId}"
+                       th:attr="data-coefficient=${coefficientMap[product.productId] != null ? coefficientMap[product.productId] : 1.0}"
+                       th:value="${coefficientMap[product.productId] != null ? coefficientMap[product.productId] : 1.0}"
+                       oninput="coefficientInputChanged(this)">
+            </div>
 
-
-            <a th:href="@{'/cart/remove?productId=' + ${product.productId}}" class="btn btn-danger mt-2">Удалить</a>
+            <!-- Итоговая цена с коэффициентом -->
+            <p class="mt-2">
+                Цена с коэффициентом: <span th:id="'final-price-' + ${product.productId}">0</span> ₸
+            </p>
         </div>
     </div>
 
-    <h4 class="mt-4">Общая сумма: <span th:text="${totalSum} + ' ₸'">0 ₸</span></h4>
+
+
+    <h4 class="mt-4">
+        Общая сумма: <span id="total-sum" th:text="${totalSum}">0</span> ₸
+    </h4>
+
 
     <form th:action="@{/cart/confirm}" method="post">
         <button type="submit" class="btn btn-success mt-3">Подтвердить заказ</button>
     </form>
 
 </div>
+
+<script>
+    let coefficientTimeouts = {};
+
+    function coefficientInputChanged(input) {
+        const productId = input.id.split('-')[1];
+        const newCoefficient = parseFloat(input.value);
+
+        if (isNaN(newCoefficient) || newCoefficient <= 0) {
+            input.value = 1.0;
+            return;
+        }
+
+        const previousCoefficient = parseFloat(input.getAttribute('data-coefficient'));
+
+        if (previousCoefficient === newCoefficient) {
+            // НИЧЕГО не меняем, если коэффициент тот же самый
+            return;
+        }
+
+        // Очищаем старую задержку, если быстро набрали
+        if (coefficientTimeouts[productId]) {
+            clearTimeout(coefficientTimeouts[productId]);
+        }
+
+        // Ставим новую задержку
+        coefficientTimeouts[productId] = setTimeout(() => {
+            fetch('/cart/coefficient', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: 'productId=' + productId + '&coefficient=' + newCoefficient
+            })
+                .then(() => {
+                    input.setAttribute('data-coefficient', newCoefficient); // обновляем сохранённое значение
+                    recalculateTotalPrice(productId);
+                    recalculateTotalSum();
+                });
+        }, 500); // ждать 0.5 секунды после последнего изменения
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+        const allProducts = document.querySelectorAll('[id^="product-"]');
+        allProducts.forEach(productDiv => {
+            const productId = productDiv.id.split('-')[1];
+            recalculateTotalPrice(productId);
+        });
+
+        recalculateTotalSum(); // и сразу пересчитаем общую сумму
+    });
+    function removeFromCartInCartPage(productId) {
+        fetch('/cart/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'productId=' + productId
+        })
+            .then(() => {
+                const counter = document.getElementById('counter-' + productId);
+                const priceForQuantity = document.getElementById('price-for-quantity-' + productId);
+                if (counter && priceForQuantity) {
+                    let newValue = parseInt(counter.value) - 1;
+                    if (newValue <= 0) {
+                        const productBlock = document.getElementById('product-' + productId);
+                        if (productBlock) {
+                            productBlock.remove();
+                        }
+                    } else {
+                        counter.value = newValue;
+                        const basePrice = parseFloat(priceForQuantity.getAttribute('data-base-price'));
+                        priceForQuantity.innerText = (basePrice * newValue).toFixed(2);
+                        recalculateTotalPrice(productId);
+                    }
+                }
+                refreshCartCounter();
+                recalculateTotalSum();
+
+            });
+    }
+
+    function addToCartInCartPage(productId) {
+        fetch('/cart/add?productId=' + productId, { method: 'POST' })
+            .then(() => {
+                const counter = document.getElementById('counter-' + productId);
+                const priceForQuantity = document.getElementById('price-for-quantity-' + productId);
+                if (counter && priceForQuantity) {
+                    let newValue = parseInt(counter.value) + 1;
+                    counter.value = newValue;
+                    const basePrice = parseFloat(priceForQuantity.getAttribute('data-base-price'));
+                    priceForQuantity.innerText = (basePrice * newValue).toFixed(2);
+                    recalculateTotalPrice(productId);
+                }
+                refreshCartCounter();
+                recalculateTotalSum();
+
+            });
+    }
+
+
+    function recalculateTotalPrice(productId) {
+        const counter = document.getElementById('counter-' + productId);
+        const coefficientInput = document.getElementById('coefficient-' + productId);
+        const finalPrice = document.getElementById('final-price-' + productId);
+        const priceForQuantity = document.getElementById('price-for-quantity-' + productId);
+
+        if (counter && coefficientInput && finalPrice && priceForQuantity) {
+            let quantity = parseInt(counter.value); // ВАЖНО использовать .value если input
+            let coefficient = parseFloat(coefficientInput.value);
+            let basePrice = parseFloat(priceForQuantity.getAttribute('data-base-price'));
+
+            const totalWithoutCoefficient = basePrice * quantity;
+            finalPrice.innerText = (totalWithoutCoefficient * coefficient).toFixed(2);
+        }
+    }
+
+
+    function recalculateTotalSum() {
+        let total = 0.0;
+        const finalPrices = document.querySelectorAll('[id^="final-price-"]');
+        finalPrices.forEach(span => {
+            total += parseFloat(span.innerText) || 0;
+        });
+
+        const totalSumElement = document.getElementById('total-sum');
+        if (totalSumElement) {
+            totalSumElement.innerText = total.toFixed(2);
+        }
+    }
+
+    function refreshCartCounter() {
+        fetch('/cart/count')
+            .then(response => response.text())
+            .then(count => {
+                const cartCounter = document.getElementById('cart-counter');
+                if (cartCounter) {
+                    cartCounter.innerText = count;
+                }
+            });
+    }
+
+    function manualQuantityChange(input) {
+        const productId = input.id.split('-')[1];
+        const newQuantity = parseInt(input.value);
+
+        if (isNaN(newQuantity) || newQuantity <= 0) {
+            input.value = 1;
+            return;
+        }
+
+        fetch('/cart/update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: 'productId=' + productId + '&quantity=' + newQuantity
+        })
+            .then(() => {
+                const priceForQuantity = document.getElementById('price-for-quantity-' + productId);
+                const basePrice = parseFloat(priceForQuantity.getAttribute('data-base-price'));
+                priceForQuantity.innerText = (basePrice * newQuantity).toFixed(2);
+
+                recalculateTotalPrice(productId);
+                refreshCartCounter();
+                recalculateTotalSum();
+
+            });
+    }
+
+    function coefficientChanged(productId) {
+        const coefficientInput = document.getElementById('coefficient-' + productId);
+        const newCoefficient = parseFloat(coefficientInput.value);
+
+        fetch('/cart/coefficient', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: 'productId=' + productId + '&coefficient=' + newCoefficient
+        })
+            .then(() => {
+                recalculateTotalPrice(productId);
+                recalculateTotalSum();
+            });
+    }
+</script>
+
+
+
+
 </body>
 </html>

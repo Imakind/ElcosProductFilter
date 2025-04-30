@@ -75,30 +75,59 @@
         function addToCart(productId) {
             fetch('/cart/add?productId=' + productId, { method: 'POST' })
                 .then(() => {
-                    // Обновляем глобальный счётчик корзины в шапке
-                    const counter = document.getElementById('cart-counter');
+                    const counter = document.getElementById('counter-' + productId);
                     if (counter) {
-                        const current = parseInt(counter.innerText);
-                        counter.innerText = current + 1;
+                        counter.value = parseInt(counter.value) + 1; // раньше было innerText
                     }
+                    const cartCounter = document.getElementById('cart-counter');
+                    if (cartCounter) {
+                        cartCounter.innerText = parseInt(cartCounter.innerText) + 1;
+                    }
+                    highlightProduct(productId);
+                });
+        }
 
-                    // Найти кнопку и блок товара
-                    const btn = document.getElementById('btn-' + productId);
-                    const productBlock = document.getElementById('product-' + productId);
-
-                    if (btn && productBlock) {
-                        // Считаем количество нажатий
-                        if (!btn.dataset.count) btn.dataset.count = 0;
-                        btn.dataset.count = parseInt(btn.dataset.count) + 1;
-
-                        // Только меняем текст кнопки!
-                        btn.innerText = 'Добавить (' + btn.dataset.count + ')';
-
-                        // Делаем рамку товара
-                        productBlock.classList.add('border', 'border-success', 'rounded', 'shadow-sm', 'bg-light');
+        function removeFromCart(productId) {
+            fetch('/cart/remove', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: 'productId=' + productId
+            })
+                .then(() => {
+                    const counter = document.getElementById('counter-' + productId);
+                    if (counter) {
+                        const newValue = parseInt(counter.value) - 1; // раньше было innerText
+                        if (newValue <= 0) {
+                            counter.value = 0;
+                            unhighlightProduct(productId);
+                        } else {
+                            counter.value = newValue;
+                        }
+                    }
+                    const cartCounter = document.getElementById('cart-counter');
+                    if (cartCounter) {
+                        cartCounter.innerText = Math.max(0, parseInt(cartCounter.innerText) - 1);
                     }
                 });
         }
+
+
+        function highlightProduct(productId) {
+            const productBlock = document.getElementById('product-' + productId);
+            if (productBlock) {
+                productBlock.classList.add('border', 'border-success', 'rounded', 'shadow-sm', 'bg-light');
+            }
+        }
+
+        function unhighlightProduct(productId) {
+            const productBlock = document.getElementById('product-' + productId);
+            if (productBlock) {
+                productBlock.classList.remove('border', 'border-success', 'rounded', 'shadow-sm', 'bg-light');
+            }
+        }
+
 
 
     </script>
@@ -214,6 +243,14 @@
                 </select>
             </div>
         </div>
+        <div class="row mb-3">
+        <div class="col">
+            <label>Поиск по названию:</label>
+            <input type="text" name="keyword" class="form-control" placeholder="Введите название товара..."
+                   th:value="${filterParams['keyword']}">
+        </div>
+    </div>
+
         <button type="submit" class="btn btn-primary">Применить</button>
     </form>
 
@@ -272,7 +309,8 @@
     <div id="product-list" class="list-group" th:if="${products != null}">
         <div class="list-group-item d-flex justify-content-between align-items-center"
              th:each="prod : ${products}"
-             th:id="'product-' + ${prod.productId}">
+             th:id="'product-' + ${prod.productId}"
+             th:classappend="${quantities != null and quantities[prod.productId] != null} ? ' border border-success rounded shadow-sm bg-light' : ''">
             <div>
                 <h5 class="mb-1" th:text="${prod.name}">Название товара</h5>
                 <small th:text="'Бренд: ' + ${prod.brand.brandName}"></small><br>
@@ -281,11 +319,22 @@
                 <small class="text-danger" th:if="${prod.price == null}" th:text="'Цена: Не указана'"></small><br>
             </div>
 
-            <button class="btn btn-success btn-sm"
-                    th:id="'btn-' + ${prod.productId}"
-                    th:attr="onclick='addToCart(' + ${prod.productId} + ')'">
-                +
-            </button>
+            <div class="input-group" style="max-width: 160px;">
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        th:onclick="'removeFromCart(' + ${prod.productId} + ')'">➖</button>
+
+                <input type="number" min="0" class="form-control form-control-sm text-center"
+                       th:id="'counter-' + ${prod.productId}"
+                       th:value="${quantities[prod.productId] != null ? quantities[prod.productId] : 0}"
+                       onchange="manualQuantityChange(this)"
+                style="max-width: 60px;">
+
+
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        th:onclick="'addToCart(' + ${prod.productId} + ')'">➕</button>
+            </div>
+
+
         </div>
     </div>
 
@@ -360,38 +409,116 @@
 
 
     document.addEventListener('DOMContentLoaded', function () {
-        const sortButton = document.getElementById('sortButton');
-        const sortModal = document.getElementById('sortModal');
+        const brandId = document.querySelector('select[name="brandId"]').value;
+        const groupId = document.querySelector('select[name="groupId"]').value;
 
-        sortButton.addEventListener('click', function () {
-            if (sortModal.style.display === 'none') {
-                sortModal.style.display = 'block';
-            } else {
-                sortModal.style.display = 'none';
-            }
-        });
+        if (brandId) {
+            fetch(`/filter/groups?brandId=${brandId}`)
+                .then(res => res.json())
+                .then(data => {
+                    updateSelect('groupId', data.map(group => ({ value: group.categoryId, text: group.name })));
+                    document.querySelector('select[name="groupId"]').disabled = false;
+
+                    // Теперь если есть выбранная группа, загрузить подгруппы
+                    if (groupId) {
+                        fetch(`/filter/subgroups?groupId=${groupId}`)
+                            .then(res => res.json())
+                            .then(data => {
+                                updateSelect('subGroupId', data.map(sub => ({ value: sub.categoryId, text: sub.name })));
+                                document.querySelector('select[name="subGroupId"]').disabled = false;
+                            });
+                    }
+                });
+        }
+
+        // Автоматически обновить параметры тоже:
+        updateParameters();
     });
+
 
     function applySort() {
         const selected = document.querySelectorAll('input[name="sortOption"]:checked');
         let sortValues = [];
         selected.forEach(item => sortValues.push(item.value));
 
-        if (sortValues.length > 0) {
-            const params = new URLSearchParams({
-                brandId: document.querySelector('select[name="brandId"]').value,
-                groupId: document.querySelector('select[name="groupId"]').value,
-                subGroupId: document.querySelector('select[name="subGroupId"]').value,
-                param1: document.querySelector('select[name="param1"]').value,
-                param2: document.querySelector('select[name="param2"]').value,
-                param3: document.querySelector('select[name="param3"]').value,
-                param4: document.querySelector('select[name="param4"]').value,
-                param5: document.querySelector('select[name="param5"]').value,
-                sort: sortValues.join(',') // объединяем сортировки через запятую
-            });
+        const params = new URLSearchParams(window.location.search);
 
-            // Переходим на новый URL
-            window.location.href = '/filter/results?' + params.toString();
+        // Если нужно перезаписать сортировку:
+        if (sortValues.length > 0) {
+            params.set('sort', sortValues.join(','));
+        } else {
+            params.delete('sort');
+        }
+
+        params.set('page', 0); // При новой сортировке сбрасываем страницу на 0!
+
+        // Переходим на обновлённый URL
+        window.location.href = '/filter/results?' + params.toString();
+    }
+
+    // Открыть модалку при клике на кнопку
+    document.getElementById('sortButton').addEventListener('click', function() {
+        document.getElementById('sortModal').style.display = 'block';
+    });
+
+    // Закрыть модалку, если кликнуть мимо неё (по желанию, для красоты)
+    window.addEventListener('click', function(event) {
+        const modal = document.getElementById('sortModal');
+        if (event.target === modal) {
+            modal.style.display = 'none';
+        }
+    });
+
+    function manualQuantityChange(input) {
+        const productId = input.id.split('-')[1];
+        const newQuantity = parseInt(input.value);
+
+        if (isNaN(newQuantity) || newQuantity < 0) {
+            input.value = 0;
+            return;
+        }
+
+        fetch('/cart/update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: 'productId=' + productId + '&quantity=' + newQuantity
+        })
+            .then(() => {
+                if (newQuantity === 0) {
+                    unhighlightProduct(productId);
+                } else {
+                    highlightProduct(productId);
+                }
+
+                updateCartCounterManually();
+            });
+    }
+
+
+    function refreshCartCounter() {
+        fetch('/cart/count')
+            .then(response => response.text())
+            .then(count => {
+                const cartCounter = document.getElementById('cart-counter');
+                if (cartCounter) {
+                    const parsedCount = parseInt(count);
+                    cartCounter.innerText = isNaN(parsedCount) ? 0 : parsedCount;
+                }
+            });
+    }
+
+    function updateCartCounterManually() {
+        let total = 0;
+        const counters = document.querySelectorAll('input[id^="counter-"]');
+        counters.forEach(counter => {
+            total += parseInt(counter.value) || 0;
+        });
+
+        const cartCounter = document.getElementById('cart-counter');
+        if (cartCounter) {
+            cartCounter.innerText = total;
         }
     }
 

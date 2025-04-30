@@ -163,6 +163,7 @@ public class ProductFilterController {
             @RequestParam(value = "param3", required = false) String param3,
             @RequestParam(value = "param4", required = false) String param4,
             @RequestParam(value = "param5", required = false) String param5,
+            @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "sort", required = false) String sort,
             @RequestParam(value = "page", defaultValue = "0") int page,
             HttpServletRequest request,
@@ -185,6 +186,15 @@ public class ProductFilterController {
                     .collect(Collectors.toList());
             productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
         }
+
+        // -------------- Фильтрация по ключевому слову -----------------
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            String lowerKeyword = keyword.toLowerCase();
+            products = products.stream()
+                    .filter(p -> p.getName() != null && p.getName().toLowerCase().contains(lowerKeyword))
+                    .collect(Collectors.toList());
+        }
+
 
         // Фильтрация по группам/подгруппам
         if (groupId != null || subGroupId != null) {
@@ -299,6 +309,15 @@ public class ProductFilterController {
         selectedParams.put("sort", sort);
         model.addAttribute("filterParams", selectedParams);
 
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
+        model.addAttribute("cartCount", cart != null ? cart.values().stream().mapToInt(i -> i).sum() : 0);
+
+        model.addAttribute("quantities", cart != null ? cart : new HashMap<>());
+
+
+        session.setAttribute("lastFilters", selectedParams);
+
+
         // Проверяем AJAX запрос или обычный
         if ("XMLHttpRequest".equals(request.getHeader("X-Requested-With"))) {
             return "fragments/product_list :: productList";
@@ -322,6 +341,16 @@ public class ProductFilterController {
     @GetMapping("/cart")
     public String viewCart(Model model, HttpSession session) {
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
+
+        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
+
+        if (cart == null) {
+            cart = new HashMap<>();
+        }
+        if (coefficientMap == null) {
+            coefficientMap = new HashMap<>();
+        }
+
         List<Product> products = (cart != null && !cart.isEmpty())
                 ? productRepo.findAllById(cart.keySet())
                 : List.of();
@@ -333,6 +362,8 @@ public class ProductFilterController {
 
         model.addAttribute("cartProducts", products);
         model.addAttribute("cartParams", parameters);
+        model.addAttribute("quantities", cart);
+        model.addAttribute("coefficientMap", coefficientMap);
 
         //  Оптимизированная загрузка категорий
         Set<Integer> productIds = products.stream()
@@ -372,22 +403,43 @@ public class ProductFilterController {
         double totalSum = 0.0;
         for (Product product : products) {
             int qty = cart.getOrDefault(product.getProductId(), 1);
-            totalSum += (product.getPrice() != null ? product.getPrice() : 0.0) * qty;
+            double price = product.getPrice() != null ? product.getPrice() : 0.0;
+            double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
+            totalSum += qty * price * coeff;
         }
         model.addAttribute("totalSum", totalSum);
 
         return "cart";
     }
 
-    @GetMapping("/cart/remove")
-    public String removeFromCart(@RequestParam("productId") Integer productId, HttpSession session) {
+    @PostMapping("/cart/coefficient")
+    @ResponseBody
+    public void updateCoefficient(@RequestParam("productId") Integer productId,
+                                  @RequestParam("coefficient") Double coefficient,
+                                  HttpSession session) {
+        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
+        if (coefficientMap == null) {
+            coefficientMap = new HashMap<>();
+        }
+        coefficientMap.put(productId, coefficient);
+        session.setAttribute("coefficientMap", coefficientMap);
+    }
+
+    @PostMapping("/cart/remove")
+    @ResponseBody
+    public void removeFromCart(@RequestParam("productId") Integer productId, HttpSession session) {
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
         if (cart != null) {
-            cart.remove(productId);
+            int qty = cart.getOrDefault(productId, 0);
+            if (qty > 1) {
+                cart.put(productId, qty - 1);
+            } else {
+                cart.remove(productId);
+            }
             session.setAttribute("cart", cart);
         }
-        return "redirect:/cart";
     }
+
 
     @PostMapping("/cart/confirm")
     public String confirmCart(HttpSession session, Model model) {
@@ -442,7 +494,7 @@ public class ProductFilterController {
 
 
 
-            // Преобразуем в сет именно Integer, иначе будет ошибка типов
+        // Преобразуем в сет именно Integer, иначе будет ошибка типов
         Set<Integer> productIds = new HashSet<>(cart.keySet());
 
         response.setContentType("application/pdf");
@@ -488,13 +540,16 @@ public class ProductFilterController {
         }
     }
 
-
     @GetMapping("/admin/add-product")
-    public String showAddProductForm(Model model) {
+    public String showAddProductForm(Model model, HttpSession session) {
         model.addAttribute("brands", brandRepo.findAll());
         model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
         model.addAttribute("subGroups", List.of());
         model.addAttribute("productForm", new ProductForm());
+
+        Map<String, Object> lastFilters = (Map<String, Object>) session.getAttribute("lastFilters");
+        model.addAttribute("filterParams", lastFilters != null ? lastFilters : new HashMap<>());
+
         return "add_product";
     }
 
@@ -545,5 +600,19 @@ public class ProductFilterController {
         return "redirect:/";
     }
 
+    @PostMapping("/cart/update")
+    @ResponseBody
+    public void updateCart(@RequestParam("productId") Integer productId,
+                           @RequestParam("quantity") Integer quantity,
+                           HttpSession session) {
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
+        if (cart == null) cart = new HashMap<>();
+        if (quantity <= 0) {
+            cart.remove(productId);
+        } else {
+            cart.put(productId, quantity);
+        }
+        session.setAttribute("cart", cart);
+    }
 
 }
