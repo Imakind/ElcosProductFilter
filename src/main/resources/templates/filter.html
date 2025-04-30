@@ -307,18 +307,37 @@
 
 
     <div id="product-list" class="list-group" th:if="${products != null}">
-        <div class="list-group-item d-flex justify-content-between align-items-center"
+        <div class="list-group-item d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center"
+             style="min-height: 100px;"
              th:each="prod : ${products}"
              th:id="'product-' + ${prod.productId}"
              th:classappend="${quantities != null and quantities[prod.productId] != null} ? ' border border-success rounded shadow-sm bg-light' : ''">
-            <div>
-                <h5 class="mb-1" th:text="${prod.name}">Название товара</h5>
-                <small th:text="'Бренд: ' + ${prod.brand.brandName}"></small><br>
-                <small class="text-danger" th:if="${prod.price != null}"
-                       th:text="'Цена: ' + ${#strings.replace(#numbers.formatDecimal(prod.price, 1, 'COMMA', 2, 'POINT'), ',', ' ')} + ' ₸'"></small>
-                <small class="text-danger" th:if="${prod.price == null}" th:text="'Цена: Не указана'"></small><br>
+
+            <!-- Левая часть: кнопки и инфо -->
+            <div class="d-flex flex-grow-1 flex-column flex-md-row w-100">
+                <!-- Кнопки слева -->
+                <div class="me-3 d-flex flex-row flex-md-column gap-1">
+                    <button class="btn btn-outline-secondary btn-sm"
+                            th:attr="onclick='openEditModal(' + ${prod.productId} + ')'"
+                            title="Редактировать товар">✏</button>
+                    <button class="btn btn-outline-danger btn-sm"
+                            th:attr="onclick='showDeleteConfirmation(' + ${prod.productId} + ')'"
+                            title="Удалить товар">🗑</button>
+                </div>
+
+                <!-- Текст -->
+                <div class="flex-grow-1">
+                    <h5 class="mb-1" style="word-break: break-word;">
+                        <span th:text="${prod.name}">Название товара</span>
+                    </h5>
+                    <small th:text="'Бренд: ' + ${prod.brand.brandName}"></small><br>
+                    <small class="text-danger" th:if="${prod.price != null}"
+                           th:text="'Цена: ' + ${#strings.replace(#numbers.formatDecimal(prod.price, 1, 'COMMA', 2, 'POINT'), ',', ' ')} + ' ₸'"></small>
+                    <small class="text-danger" th:if="${prod.price == null}" th:text="'Цена: Не указана'"></small>
+                </div>
             </div>
 
+            <!-- Корзина -->
             <div class="input-group" style="max-width: 160px;">
                 <button type="button" class="btn btn-outline-secondary btn-sm"
                         th:onclick="'removeFromCart(' + ${prod.productId} + ')'">➖</button>
@@ -327,25 +346,65 @@
                        th:id="'counter-' + ${prod.productId}"
                        th:value="${quantities[prod.productId] != null ? quantities[prod.productId] : 0}"
                        onchange="manualQuantityChange(this)"
-                style="max-width: 60px;">
-
+                       style="max-width: 60px;">
 
                 <button type="button" class="btn btn-outline-secondary btn-sm"
                         th:onclick="'addToCart(' + ${prod.productId} + ')'">➕</button>
             </div>
-
-
         </div>
     </div>
 
 
-
 </div>
-<div id="loader" class="text-center my-4" style="display: none;">
-    <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Loading...</span>
+    </div>
+
+    <div id="loader" class="text-center my-4" style="display: none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="editModal" class="modal" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%);
+        background:white; border:1px solid #ccc; padding:20px; z-index:10000; width:400px; box-shadow:0 4px 12px rgba(0,0,0,0.2);">
+        <h5>Редактировать товар</h5>
+        <form id="editProductForm">
+            <input type="hidden" name="productId" id="edit-product-id">
+            <div class="mb-2">
+                <label>Название:</label>
+                <input type="text" name="name" class="form-control" id="edit-name">
+            </div>
+            <div class="mb-2">
+                <label>Цена:</label>
+                <input type="number" step="0.01" name="price" class="form-control" id="edit-price">
+            </div>
+            <div class="mb-2">
+                <label>Артикул:</label>
+                <input type="text" name="articleCode" class="form-control" id="edit-article">
+            </div>
+            <!-- можешь позже добавить brandId, param1-5 и прочее -->
+            <div class="d-flex justify-content-end">
+                <button type="button" class="btn btn-secondary me-2" onclick="closeEditModal()">Отмена</button>
+                <button type="submit" class="btn btn-primary">💾 Сохранить</button>
+            </div>
+        </form>
+    </div>
+
+<!-- Полупрозрачный фон -->
+<div id="modalOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+     background: rgba(0, 0, 0, 0.5); z-index: 9998;"></div>
+
+<!-- Само окно -->
+<div id="deleteModal" style="display: none; position: fixed; top: 50%; left: 50%;
+     transform: translate(-50%, -50%); background: white; padding: 20px;
+     border: 1px solid #ccc; border-radius: 10px; z-index: 9999; width: 300px; max-width: 90%;">
+    <p class="mb-3">Удалить товар?</p>
+    <div class="d-flex justify-content-end gap-2">
+        <button class="btn btn-secondary" onclick="closeDeleteModal()">Отмена</button>
+        <button class="btn btn-danger" id="confirmDeleteBtn">Удалить</button>
     </div>
 </div>
+
 
 <script th:inline="javascript">
     let currentPage = /*[[${currentPage}]]*/ 0;
@@ -395,6 +454,7 @@
                     document.getElementById('product-list').appendChild(item);
                     setTimeout(() => {
                         item.style.opacity = '1';
+                        attachProductHandlers(item);
                     }, 50);
                 });
                 document.getElementById('loader').style.display = 'none';
@@ -519,6 +579,99 @@
         const cartCounter = document.getElementById('cart-counter');
         if (cartCounter) {
             cartCounter.innerText = total;
+        }
+    }
+
+
+    function openEditModal(productId) {
+        fetch('/admin/api/product?id=' + productId)
+            .then(response => response.json())
+            .then(product => {
+                document.getElementById('edit-product-id').value = product.productId;
+                document.getElementById('edit-name').value = product.name;
+                document.getElementById('edit-price').value = product.price;
+                document.getElementById('edit-article').value = product.articleCode;
+                document.getElementById('editModal').style.display = 'block';
+            });
+    }
+
+    function closeEditModal() {
+        document.getElementById('editModal').style.display = 'none';
+    }
+
+    document.getElementById('editProductForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+
+        const formData = new FormData(this);
+        fetch('/admin/api/edit-product', {
+            method: 'POST',
+            body: new URLSearchParams(formData)
+        }).then(() => {
+            closeEditModal();
+            location.reload();
+        });
+    });
+
+
+
+    let productToDelete = null;
+
+    function showDeleteConfirmation(productId) {
+        productToDelete = productId;
+        document.getElementById('deleteModal').style.display = 'block';
+        document.getElementById('confirmDeleteBtn').focus();
+    }
+
+    function closeDeleteModal() {
+        productToDelete = null;
+        document.getElementById('deleteModal').style.display = 'none';
+    }
+
+    document.getElementById('confirmDeleteBtn').addEventListener('click', function () {
+        if (productToDelete) {
+            fetch('/admin/api/product/' + productToDelete, {
+                method: 'DELETE'
+            }).then(() => {
+                document.getElementById('product-' + productToDelete)?.remove();
+                closeDeleteModal();
+            });
+        }
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && document.getElementById('deleteModal').style.display === 'block') {
+            document.getElementById('confirmDeleteBtn').click();
+        }
+        if (e.key === 'Escape') {
+            closeDeleteModal();
+        }
+    });
+    function showDeleteConfirmation(productId) {
+        productToDelete = productId;
+        document.getElementById('modalOverlay').style.display = 'block';
+        document.getElementById('deleteModal').style.display = 'block';
+        document.getElementById('confirmDeleteBtn').focus();
+    }
+
+    function closeDeleteModal() {
+        productToDelete = null;
+        document.getElementById('deleteModal').style.display = 'none';
+        document.getElementById('modalOverlay').style.display = 'none';
+    }
+
+
+    function attachProductHandlers(item) {
+        const editBtn = item.querySelector('button[title="Редактировать товар"]');
+        const deleteBtn = item.querySelector('button[title="Удалить товар"]');
+
+        if (editBtn) {
+            const id = editBtn.getAttribute('onclick').match(/\d+/)[0];
+            editBtn.onclick = () => openEditModal(parseInt(id));
+        }
+
+        if (deleteBtn) {
+            const id = deleteBtn.getAttribute('onclick').match(/\d+/)[0];
+            deleteBtn.onclick = () => showDeleteConfirmation(parseInt(id));
         }
     }
 

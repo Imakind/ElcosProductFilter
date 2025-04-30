@@ -16,4 +16,6 @@ public interface ProductCategoriesRepository extends JpaRepository<ProductCatego
 
     List<ProductCategories> findByProductIdIn(Collection<Integer> productIds);
 
+    void deleteByProductId(Integer productId);
+
 }

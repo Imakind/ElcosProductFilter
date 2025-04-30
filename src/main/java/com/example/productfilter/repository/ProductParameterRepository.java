@@ -21,4 +21,7 @@ public interface ProductParameterRepository extends JpaRepository<ProductParamet
     List<String> findDistinctParam5();
 
     List<ProductParameters> findByProduct_ProductIdIn(Collection<Integer> productIds);
+
+    void deleteByProduct_ProductId(Integer productId);
+
 }

@@ -669,4 +669,12 @@ public class ProductFilterController {
         }
     }
 
+    @PostMapping("/cart/clear")
+    @ResponseBody
+    public void clearCart(HttpSession session) {
+        session.removeAttribute("cart");
+        session.removeAttribute("coefficientMap");
+    }
+
+
 }

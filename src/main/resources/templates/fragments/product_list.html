@@ -1,17 +1,36 @@
-<div id="product-list" th:fragment="productList">
-    <div class="list-group-item d-flex justify-content-between align-items-center"
+<div th:fragment="productList">
+    <div class="list-group-item d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center"
+         style="min-height: 100px;"
          th:each="prod : ${products}"
          th:id="'product-' + ${prod.productId}"
          th:classappend="${quantities != null and quantities[prod.productId] != null} ? ' border border-success rounded shadow-sm bg-light' : ''">
-        <div>
-            <h5 class="mb-1" th:text="${prod.name}">Название товара</h5>
-            <small th:text="'Бренд: ' + ${prod.brand.brandName}"></small><br>
-            <small class="text-danger" th:if="${prod.price != null}"
-                   th:text="'Цена: ' + ${#strings.replace(#numbers.formatDecimal(prod.price, 1, 'COMMA', 2, 'POINT'), ',', ' ')} + ' ₸'"></small>
-            <small class="text-danger" th:if="${prod.price == null}" th:text="'Цена: Не указана'"></small><br>
+
+        <!-- Левая часть: кнопки и текст -->
+        <div class="d-flex flex-grow-1 flex-column flex-md-row w-100">
+            <!-- Кнопки слева -->
+            <div class="me-3 d-flex flex-row flex-md-column gap-1">
+                <button class="btn btn-outline-secondary btn-sm"
+                        th:attr="onclick='openEditModal(' + ${prod.productId} + ')'"
+                        title="Редактировать товар">✏</button>
+                <button class="btn btn-outline-danger btn-sm"
+                        th:attr="onclick='showDeleteConfirmation(' + ${prod.productId} + ')'"
+                        title="Удалить товар">🗑</button>
+            </div>
+
+            <!-- Название и инфо по центру -->
+            <div class="flex-grow-1">
+                <h5 class="mb-1" style="word-break: break-word;">
+                    <span th:text="${prod.name}">Название товара</span>
+                </h5>
+                <small th:text="'Бренд: ' + ${prod.brand.brandName}"></small><br>
+                <small class="text-danger" th:if="${prod.price != null}"
+                       th:text="'Цена: ' + ${#strings.replace(#numbers.formatDecimal(prod.price, 1, 'COMMA', 2, 'POINT'), ',', ' ')} + ' ₸'"></small>
+                <small class="text-danger" th:if="${prod.price == null}" th:text="'Цена: Не указана'"></small>
+            </div>
         </div>
 
-        <div class="input-group" style="max-width: 160px;">
+        <!-- Правая часть: корзина -->
+        <div class="input-group" style="max-width: 160px">
             <button type="button" class="btn btn-outline-secondary btn-sm"
                     th:onclick="'removeFromCart(' + ${prod.productId} + ')'">➖</button>
 
@@ -26,3 +45,21 @@
         </div>
     </div>
 </div>
+
+
+<script>
+    function attachProductHandlers(item) {
+        const editBtn = item.querySelector('button[title="Редактировать товар"]');
+        const deleteBtn = item.querySelector('button[title="Удалить товар"]');
+
+        if (editBtn) {
+            const id = editBtn.getAttribute('onclick').match(/\d+/)[0];
+            editBtn.onclick = () => openEditModal(parseInt(id));
+        }
+
+        if (deleteBtn) {
+            const id = deleteBtn.getAttribute('onclick').match(/\d+/)[0];
+            deleteBtn.onclick = () => showDeleteConfirmation(parseInt(id));
+        }
+    }
+</script>
