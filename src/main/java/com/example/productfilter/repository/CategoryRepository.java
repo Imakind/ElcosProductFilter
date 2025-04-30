@@ -20,4 +20,7 @@ public interface CategoryRepository extends JpaRepository<Category, Integer> {
             "WHERE pc.productId IN :productIds AND c.parentCategoryId IS NULL")
     List<Category> findParentCategoriesByProducts(@Param("productIds") Collection<Integer> productIds);
 
+    @Query("SELECT c FROM Category c WHERE c.parentCategoryId IS NOT NULL")
+    List<Category> findAllSubGroups();
+
 }

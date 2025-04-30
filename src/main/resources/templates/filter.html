@@ -5,79 +5,108 @@
     <title>Фильтр товаров</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script th:inline="javascript">
-        function onBrandChange() {
-            let brandId = document.querySelector('select[name="brandId"]').value;
+        let allSubGroups = [];
 
-            fetch(`/filter/groups?brandId=` + brandId)
-                .then(res => res.json())
-                .then(data => {
-                    let groupSelect = document.querySelector('select[name="groupId"]');
-                    groupSelect.innerHTML = '<option value="">Выберите группу</option>';
-                    data.forEach(group => {
-                        groupSelect.innerHTML += `<option value="${group.categoryId}">${group.name}</option>`;
-                    });
-                    groupSelect.disabled = false;
-                });
-
+        function onAnyFilterChange() {
+            updateGroups();
+            updateSubGroups();
             updateParameters();
         }
 
-        function onGroupChange() {
-            let groupId = document.querySelector('select[name="groupId"]').value;
-
-            fetch(`/filter/subgroups?groupId=` + groupId)
+        function updateGroups() {
+            const brandId = document.querySelector('select[name="brandId"]').value;
+            if (!brandId) return;
+            fetch(`/filter/groups?brandId=${brandId}`)
                 .then(res => res.json())
-                .then(data => {
-                    let subGroupSelect = document.querySelector('select[name="subGroupId"]');
-                    subGroupSelect.innerHTML = '<option value="">Выберите подгруппу</option>';
-                    data.forEach(sub => {
-                        subGroupSelect.innerHTML += `<option value="${sub.categoryId}">${sub.name}</option>`;
-                    });
-                    subGroupSelect.disabled = false;
-                });
-
-            updateParameters();
+                .then(data => updateSelect('groupId', data.map(g => ({value: g.categoryId, text: g.name}))));
         }
 
-        function onSubGroupChange() {
-            updateParameters();
+        function updateSubGroups() {
+            const groupId = document.querySelector('select[name="groupId"]').value;
+            const brandId = document.querySelector('select[name="brandId"]').value;
+            if (!groupId) return;
+            let subgroups = allSubGroups.filter(sg => sg.parentCategoryId == groupId);
+            updateSelect('subGroupId', subgroups.map(sg => ({ value: sg.categoryId, text: sg.name })));
         }
 
         function updateParameters() {
-            let brandId = document.querySelector('select[name="brandId"]').value;
-            let groupId = document.querySelector('select[name="groupId"]').value;
-            let subGroupId = document.querySelector('select[name="subGroupId"]').value;
+            const brandId = document.querySelector('select[name="brandId"]').value;
+            const groupId = document.querySelector('select[name="groupId"]').value;
+            const subGroupId = document.querySelector('select[name="subGroupId"]').value;
 
-            let url = `/filter/parameters?brandId=` + brandId;
-            if (groupId) url += `&groupId=` + groupId;
-            if (subGroupId) url += `&subGroupId=` + subGroupId;
+            let url = `/filter/parameters?`;
+            if (brandId) url += `brandId=${brandId}&`;
+            if (groupId) url += `groupId=${groupId}&`;
+            if (subGroupId) url += `subGroupId=${subGroupId}`;
 
             fetch(url)
                 .then(res => res.json())
                 .then(data => {
-                    updateSelect('param1', data.param1List);
-                    updateSelect('param2', data.param2List);
-                    updateSelect('param3', data.param3List);
-                    updateSelect('param4', data.param4List);
-                    updateSelect('param5', data.param5List);
+                    ['param1', 'param2', 'param3', 'param4', 'param5'].forEach(param => {
+                        updateSelect(param, data[param + 'List'] || []);
+                    });
                 });
         }
 
-        function updateSelect(paramName, values) {
-            let select = document.querySelector('select[name="' + paramName + '"]');
+        function updateSelect(selectName, items) {
+            const select = document.querySelector(`select[name="${selectName}"]`);
+            const currentValue = select.value;
             select.innerHTML = '<option value="">Выберите значение</option>';
-            values.forEach(val => {
-                select.innerHTML += `<option value="${val}">${val}</option>`;
+            items.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item.value || item;
+                option.text = item.text || item;
+                if (option.value == currentValue) option.selected = true;
+                select.appendChild(option);
             });
-            select.disabled = false;
         }
+
+        function onSubGroupChange() {
+            const subGroupId = document.querySelector('select[name="subGroupId"]').value;
+            if (!subGroupId) return;
+            const selected = allSubGroups.find(sg => sg.categoryId == subGroupId);
+            if (selected) {
+                document.querySelector('select[name="groupId"]').value = selected.parentCategoryId;
+                updateSubGroups();
+            }
+            updateParameters();
+        }
+
+        function resetFilter() {
+            document.querySelectorAll('select, input').forEach(e => e.value = '');
+            updateGroups();
+            updateSubGroups();
+            updateParameters();
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            fetch('/filter/subgroups/all')
+                .then(res => res.json())
+                .then(data => {
+                    allSubGroups = data;
+
+                    // при старте показываем подкатегории (если была выбрана группа)
+                    const groupId = document.querySelector('select[name="groupId"]').value;
+                    if (groupId) {
+                        updateSubGroups();
+                    }
+
+                    onAnyFilterChange();
+                });
+
+            ['brandId', 'groupId'].forEach(name => {
+                document.querySelector(`select[name="${name}"]`)?.addEventListener('change', onAnyFilterChange);
+            });
+            document.querySelector('select[name="subGroupId"]').addEventListener('change', onSubGroupChange);
+        });
+
 
         function addToCart(productId) {
             fetch('/cart/add?productId=' + productId, { method: 'POST' })
                 .then(() => {
                     const counter = document.getElementById('counter-' + productId);
                     if (counter) {
-                        counter.value = parseInt(counter.value) + 1; // раньше было innerText
+                        counter.value = parseInt(counter.value) + 1;
                     }
                     const cartCounter = document.getElementById('cart-counter');
                     if (cartCounter) {
@@ -90,29 +119,25 @@
         function removeFromCart(productId) {
             fetch('/cart/remove', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: 'productId=' + productId
-            })
-                .then(() => {
-                    const counter = document.getElementById('counter-' + productId);
-                    if (counter) {
-                        const newValue = parseInt(counter.value) - 1; // раньше было innerText
-                        if (newValue <= 0) {
-                            counter.value = 0;
-                            unhighlightProduct(productId);
-                        } else {
-                            counter.value = newValue;
-                        }
+            }).then(() => {
+                const counter = document.getElementById('counter-' + productId);
+                if (counter) {
+                    const newValue = parseInt(counter.value) - 1;
+                    if (newValue <= 0) {
+                        counter.value = 0;
+                        unhighlightProduct(productId);
+                    } else {
+                        counter.value = newValue;
                     }
-                    const cartCounter = document.getElementById('cart-counter');
-                    if (cartCounter) {
-                        cartCounter.innerText = Math.max(0, parseInt(cartCounter.innerText) - 1);
-                    }
-                });
+                }
+                const cartCounter = document.getElementById('cart-counter');
+                if (cartCounter) {
+                    cartCounter.innerText = Math.max(0, parseInt(cartCounter.innerText) - 1);
+                }
+            });
         }
-
 
         function highlightProduct(productId) {
             const productBlock = document.getElementById('product-' + productId);
@@ -127,10 +152,8 @@
                 productBlock.classList.remove('border', 'border-success', 'rounded', 'shadow-sm', 'bg-light');
             }
         }
-
-
-
     </script>
+
 
 </head>
 <body class="p-4">
@@ -169,7 +192,7 @@
             </div>
             <div class="col">
                 <label>Группа товара:</label>
-                <select name="groupId" class="form-select" onchange="onGroupChange()" disabled>
+                <select name="groupId" class="form-select" onchange="onGroupChange()">
                     <option value="">Выберите группу</option>
                     <option th:each="group : ${groups}"
                             th:value="${group.categoryId}"
@@ -180,7 +203,7 @@
             </div>
             <div class="col">
                 <label>Подгруппа товара:</label>
-                <select name="subGroupId" class="form-select" onchange="onSubGroupChange()" disabled>
+                <select name="subGroupId" class="form-select" onchange="onSubGroupChange()">
                     <option value="">Выберите подгруппу</option>
                     <option th:each="sub : ${subGroups}"
                             th:value="${sub.categoryId}"
@@ -194,7 +217,7 @@
         <div class="row mb-3">
             <div class="col">
                 <label>Параметр 1:</label>
-                <select name="param1" class="form-select" disabled>
+                <select name="param1" class="form-select" onchange="updateParameters()">
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param1List}"
                             th:value="${val}" th:text="${val}"
@@ -204,7 +227,7 @@
             </div>
             <div class="col">
                 <label>Параметр 2:</label>
-                <select name="param2" class="form-select" disabled>
+                <select name="param2" class="form-select" onchange="updateParameters()">
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param2List}"
                             th:value="${val}" th:text="${val}"
@@ -214,7 +237,7 @@
             </div>
             <div class="col">
                 <label>Параметр 3:</label>
-                <select name="param3" class="form-select" disabled>
+                <select name="param3" class="form-select" onchange="updateParameters()">
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param3List}"
                             th:value="${val}" th:text="${val}"
@@ -224,7 +247,7 @@
             </div>
             <div class="col">
                 <label>Параметр 4:</label>
-                <select name="param4" class="form-select" disabled>
+                <select name="param4" class="form-select" onchange="updateParameters()">
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param4List}"
                             th:value="${val}" th:text="${val}"
@@ -234,7 +257,7 @@
             </div>
             <div class="col">
                 <label>Параметр 5:</label>
-                <select name="param5" class="form-select" disabled>
+                <select name="param5" class="form-select" onchange="updateParameters()">
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param5List}"
                             th:value="${val}" th:text="${val}"
@@ -244,12 +267,12 @@
             </div>
         </div>
         <div class="row mb-3">
-        <div class="col">
-            <label>Поиск по названию:</label>
-            <input type="text" name="keyword" class="form-control" placeholder="Введите название товара..."
-                   th:value="${filterParams['keyword']}">
+            <div class="col">
+                <label>Поиск по названию:</label>
+                <input type="text" name="keyword" class="form-control" placeholder="Введите название товара..."
+                       th:value="${filterParams['keyword']}">
+            </div>
         </div>
-    </div>
 
         <button type="submit" class="btn btn-primary">Применить</button>
     </form>
@@ -356,39 +379,39 @@
 
 
 </div>
-    </div>
+</div>
 
-    <div id="loader" class="text-center my-4" style="display: none;">
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Loading...</span>
-        </div>
+<div id="loader" class="text-center my-4" style="display: none;">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
     </div>
+</div>
 
-    <!-- Modal -->
-    <div id="editModal" class="modal" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%);
+<!-- Modal -->
+<div id="editModal" class="modal" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%);
         background:white; border:1px solid #ccc; padding:20px; z-index:10000; width:400px; box-shadow:0 4px 12px rgba(0,0,0,0.2);">
-        <h5>Редактировать товар</h5>
-        <form id="editProductForm">
-            <input type="hidden" name="productId" id="edit-product-id">
-            <div class="mb-2">
-                <label>Название:</label>
-                <input type="text" name="name" class="form-control" id="edit-name">
-            </div>
-            <div class="mb-2">
-                <label>Цена:</label>
-                <input type="number" step="0.01" name="price" class="form-control" id="edit-price">
-            </div>
-            <div class="mb-2">
-                <label>Артикул:</label>
-                <input type="text" name="articleCode" class="form-control" id="edit-article">
-            </div>
-            <!-- можешь позже добавить brandId, param1-5 и прочее -->
-            <div class="d-flex justify-content-end">
-                <button type="button" class="btn btn-secondary me-2" onclick="closeEditModal()">Отмена</button>
-                <button type="submit" class="btn btn-primary">💾 Сохранить</button>
-            </div>
-        </form>
-    </div>
+    <h5>Редактировать товар</h5>
+    <form id="editProductForm">
+        <input type="hidden" name="productId" id="edit-product-id">
+        <div class="mb-2">
+            <label>Название:</label>
+            <input type="text" name="name" class="form-control" id="edit-name">
+        </div>
+        <div class="mb-2">
+            <label>Цена:</label>
+            <input type="number" step="0.01" name="price" class="form-control" id="edit-price">
+        </div>
+        <div class="mb-2">
+            <label>Артикул:</label>
+            <input type="text" name="articleCode" class="form-control" id="edit-article">
+        </div>
+        <!-- можешь позже добавить brandId, param1-5 и прочее -->
+        <div class="d-flex justify-content-end">
+            <button type="button" class="btn btn-secondary me-2" onclick="closeEditModal()">Отмена</button>
+            <button type="submit" class="btn btn-primary">💾 Сохранить</button>
+        </div>
+    </form>
+</div>
 
 <!-- Полупрозрачный фон -->
 <div id="modalOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;

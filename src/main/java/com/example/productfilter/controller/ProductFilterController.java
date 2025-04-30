@@ -93,7 +93,7 @@ public class ProductFilterController {
 
     @GetMapping("/filter/groups")
     @ResponseBody
-    public List<Category> getGroupsByBrand(@RequestParam("brandId") Integer brandId) {
+    public List<Category> getGroupsByBrand(@RequestParam(value = "brandId", required = false) Integer brandId) {
         List<Product> products = productRepo.findByBrand_BrandId(brandId);
         Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
         return categoryRepo.findParentCategoriesByProducts(productIds);
@@ -101,50 +101,42 @@ public class ProductFilterController {
 
     @GetMapping("/filter/subgroups")
     @ResponseBody
-    public List<Category> getSubGroups(@RequestParam("groupId") Integer groupId) {
+    public List<Category> getSubGroups(@RequestParam(value = "groupId", required = false) Integer groupId) {
         return categoryRepo.findByParentCategoryId(groupId);
     }
 
     @GetMapping("/filter/parameters")
     @ResponseBody
     public Map<String, Set<String>> getParameters(
-            @RequestParam("brandId") Integer brandId,
+            @RequestParam(value = "brandId", required = false) Integer brandId,
             @RequestParam(value = "groupId", required = false) Integer groupId,
-            @RequestParam(value = "subGroupId", required = false) Integer subGroupId) {
+            @RequestParam(value = "subGroupId", required = false) Integer subGroupId
+    ) {
+        Set<Integer> productIds = productRepo.findAll().stream()
+                .filter(p -> brandId == null || p.getBrand().getBrandId().equals(brandId))
+                .map(Product::getProductId)
+                .collect(Collectors.toSet());
 
-        List<Product> products = productRepo.findByBrand_BrandId(brandId);
-
-        if (groupId != null) {
-            Set<Integer> matchingProductIds = new HashSet<>();
+        if (groupId != null || subGroupId != null) {
             List<ProductCategories> allRelations = productCategoriesRepo.findAll();
 
-            for (ProductCategories pc : allRelations) {
-                if (groupId.equals(pc.getCategoryId())) {
-                    matchingProductIds.add(pc.getProductId());
-                }
+            if (groupId != null) {
+                Set<Integer> groupProducts = allRelations.stream()
+                        .filter(pc -> groupId.equals(pc.getCategoryId()))
+                        .map(ProductCategories::getProductId)
+                        .collect(Collectors.toSet());
+                productIds.retainAll(groupProducts);
             }
 
-            products = products.stream()
-                    .filter(p -> matchingProductIds.contains(p.getProductId()))
-                    .collect(Collectors.toList());
-        }
-
-        if (subGroupId != null) {
-            Set<Integer> matchingProductIds = new HashSet<>();
-            List<ProductCategories> allRelations = productCategoriesRepo.findAll();
-
-            for (ProductCategories pc : allRelations) {
-                if (subGroupId.equals(pc.getCategoryId())) {
-                    matchingProductIds.add(pc.getProductId());
-                }
+            if (subGroupId != null) {
+                Set<Integer> subGroupProducts = allRelations.stream()
+                        .filter(pc -> subGroupId.equals(pc.getCategoryId()))
+                        .map(ProductCategories::getProductId)
+                        .collect(Collectors.toSet());
+                productIds.retainAll(subGroupProducts);
             }
-
-            products = products.stream()
-                    .filter(p -> matchingProductIds.contains(p.getProductId()))
-                    .collect(Collectors.toList());
         }
 
-        Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
         List<ProductParameters> params = parameterRepo.findByProduct_ProductIdIn(productIds);
 
         Map<String, Set<String>> paramMap = new HashMap<>();
@@ -675,6 +667,22 @@ public class ProductFilterController {
         session.removeAttribute("cart");
         session.removeAttribute("coefficientMap");
     }
+
+    @GetMapping("/filter/subgroups/all")
+    @ResponseBody
+    public List<Map<String, Object>> getAllSubGroups() {
+        List<Category> subGroups = categoryRepo.findAllSubGroups(); // те, у кого parentCategoryId != null
+
+        return subGroups.stream().map(sub -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("categoryId", sub.getCategoryId());
+            map.put("name", sub.getName());
+            map.put("parentCategoryId", sub.getParentCategoryId()); // теперь напрямую
+            return map;
+        }).collect(Collectors.toList());
+    }
+
+
 
 
 }
