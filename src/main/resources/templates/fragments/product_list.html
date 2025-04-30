@@ -1,16 +1,28 @@
 <div id="product-list" th:fragment="productList">
-    <div class="list-group-item d-flex justify-content-between align-items-center" th:each="prod : ${products}" th:id="'product-' + ${prod.productId}">
+    <div class="list-group-item d-flex justify-content-between align-items-center"
+         th:each="prod : ${products}"
+         th:id="'product-' + ${prod.productId}"
+         th:classappend="${quantities != null and quantities[prod.productId] != null} ? ' border border-success rounded shadow-sm bg-light' : ''">
         <div>
             <h5 class="mb-1" th:text="${prod.name}">Название товара</h5>
             <small th:text="'Бренд: ' + ${prod.brand.brandName}"></small><br>
-            <small class="text-danger" th:if="${prod.price != null}" th:text="'Цена: ' + ${#strings.replace(#numbers.formatDecimal(prod.price, 1, 'COMMA', 2, 'POINT'), ',', ' ')} + ' ₸'"></small>
+            <small class="text-danger" th:if="${prod.price != null}"
+                   th:text="'Цена: ' + ${#strings.replace(#numbers.formatDecimal(prod.price, 1, 'COMMA', 2, 'POINT'), ',', ' ')} + ' ₸'"></small>
             <small class="text-danger" th:if="${prod.price == null}" th:text="'Цена: Не указана'"></small><br>
         </div>
 
-        <button class="btn btn-success btn-sm"
-                th:id="'btn-' + ${prod.productId}"
-                th:attr="onclick='addToCart(' + ${prod.productId} + ')'"
-                title="Добавить в корзину">+
-        </button>
+        <div class="input-group" style="max-width: 160px;">
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    th:onclick="'removeFromCart(' + ${prod.productId} + ')'">➖</button>
+
+            <input type="number" min="0" class="form-control form-control-sm text-center"
+                   th:id="'counter-' + ${prod.productId}"
+                   th:value="${quantities[prod.productId] != null ? quantities[prod.productId] : 0}"
+                   onchange="manualQuantityChange(this)"
+                   style="max-width: 60px;">
+
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    th:onclick="'addToCart(' + ${prod.productId} + ')'">➕</button>
+        </div>
     </div>
 </div>
