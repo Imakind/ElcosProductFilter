@@ -28,6 +28,10 @@ import java.io.OutputStream;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+
 
 @Controller
 public class ProductFilterController {
@@ -451,35 +455,32 @@ public class ProductFilterController {
 
         List<Product> products = productRepo.findAllById(cart.keySet());
 
-        List<ProductParameters> parameters = parameterRepo.findByProduct_ProductIdIn(
-                cart.keySet()
-        );
-
-        Map<Integer, ProductParameters> paramMap = parameters.stream()
-                .collect(Collectors.toMap(p -> p.getProduct().getProductId(), p -> p));
-
-        model.addAttribute("products", products);
-        model.addAttribute("paramMap", paramMap);
-        model.addAttribute("quantities", cart); //  добавляем количество
-
-        session.removeAttribute("cart"); //  очищаем корзину
-
+        // 1. Считаем итоговую сумму
         double totalSum = 0.0;
         for (Product product : products) {
             int qty = cart.getOrDefault(product.getProductId(), 1);
             double price = product.getPrice() != null ? product.getPrice() : 0.0;
             totalSum += price * qty;
         }
-        model.addAttribute("totalSum", totalSum);
-        model.addAttribute("quantities", cart); // если ещё не добавлено
 
-        session.setAttribute("proposalCart", cart);
+        // 2. Параметры
+        List<ProductParameters> parameters = parameterRepo.findByProduct_ProductIdIn(cart.keySet());
+        Map<Integer, ProductParameters> paramMap = parameters.stream()
+                .collect(Collectors.toMap(p -> p.getProduct().getProductId(), p -> p));
+
+        model.addAttribute("products", products);
+        model.addAttribute("paramMap", paramMap);
+        model.addAttribute("quantities", cart);
+        model.addAttribute("totalSum", totalSum);
+
+        // 3. Сохраняем в сессию
+        session.setAttribute("proposalCart", new HashMap<>(cart));
         session.setAttribute("proposalProducts", products);
         session.setAttribute("proposalTotal", totalSum);
 
-
         return "proposal";
     }
+
 
     @GetMapping("/proposal/pdf")
     public void downloadProposalPdf(HttpServletResponse response, HttpSession session) throws IOException {
@@ -613,6 +614,59 @@ public class ProductFilterController {
             cart.put(productId, quantity);
         }
         session.setAttribute("cart", cart);
+    }
+
+
+    @GetMapping("/proposal/excel")
+    public void downloadProposalExcel(HttpServletResponse response, HttpSession session) throws IOException {
+        // Сначала получаем данные из сессии
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("proposalCart");
+        List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
+        Double totalSum = (Double) session.getAttribute("proposalTotal");
+
+        // Проверка на null
+        if (cart == null || products == null || cart.isEmpty() || totalSum == null) {
+            response.sendRedirect("/proposal");
+            return;
+        }
+
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setHeader("Content-Disposition", "attachment; filename=smeta.xlsx");
+
+        try (Workbook workbook = new XSSFWorkbook(); OutputStream out = response.getOutputStream()) {
+            Sheet sheet = workbook.createSheet("Смета");
+
+            // Заголовки
+            Row header = sheet.createRow(0);
+            String[] headers = {"№", "Наименование затрат", "Ед. изм.", "Количество", "Цена, тг", "Сумма, тг"};
+            for (int i = 0; i < headers.length; i++) {
+                header.createCell(i).setCellValue(headers[i]);
+            }
+
+            // Содержимое
+            int rowIdx = 1;
+            for (int i = 0; i < products.size(); i++) {
+                Product product = products.get(i);
+                int qty = cart.getOrDefault(product.getProductId(), 1);
+                double price = product.getPrice() != null ? product.getPrice() : 0.0;
+                double sum = qty * price;
+
+                Row row = sheet.createRow(rowIdx++);
+                row.createCell(0).setCellValue(i + 1);
+                row.createCell(1).setCellValue(product.getName());
+                row.createCell(2).setCellValue("шт.");
+                row.createCell(3).setCellValue(qty);
+                row.createCell(4).setCellValue(price);
+                row.createCell(5).setCellValue(sum);
+            }
+
+            // Итоговая строка
+            Row totalRow = sheet.createRow(rowIdx);
+            totalRow.createCell(4).setCellValue("Итого:");
+            totalRow.createCell(5).setCellValue(totalSum);
+
+            workbook.write(out);
+        }
     }
 
 }
