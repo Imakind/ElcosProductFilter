@@ -1,18 +1,22 @@
 package com.example.productfilter.controller;
 
+import com.example.productfilter.dto.ProposalHistoryView;
 import com.example.productfilter.model.*;
 import com.example.productfilter.repository.*;
+import org.springframework.core.io.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import com.lowagie.text.Document;
@@ -25,6 +29,12 @@ import com.lowagie.text.pdf.PdfPTable;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.text.DecimalFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -42,6 +52,9 @@ public class ProductFilterController {
     @Autowired private ProductParameterRepository parameterRepo;
     @Autowired
     private ProductCategoriesRepository productCategoriesRepo;
+    @Autowired
+    private ProposalRepository proposalRepo;
+
 
 
     @GetMapping("/")
@@ -460,15 +473,48 @@ public class ProductFilterController {
         Map<Integer, ProductParameters> paramMap = parameters.stream()
                 .collect(Collectors.toMap(p -> p.getProduct().getProductId(), p -> p));
 
+        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
+        if (coefficientMap == null) {
+            coefficientMap = new HashMap<>();
+        }
+
+
         model.addAttribute("products", products);
         model.addAttribute("paramMap", paramMap);
         model.addAttribute("quantities", cart);
         model.addAttribute("totalSum", totalSum);
+        model.addAttribute("coefficientMap", coefficientMap);
 
         // 3. Сохраняем в сессию
         session.setAttribute("proposalCart", new HashMap<>(cart));
+        session.setAttribute("proposalCoefficients", new HashMap<>(coefficientMap));
         session.setAttribute("proposalProducts", products);
         session.setAttribute("proposalTotal", totalSum);
+
+        Proposal proposal = new Proposal();
+        proposal.setName("КП от " + LocalDateTime.now());
+        proposal.setFileType("pdf");
+        proposal.setFilePath("/generated/proposal_123.pdf");
+        proposal.setTotalSum(totalSum);
+        proposalRepo.save(proposal);
+
+
+        List<ProposalItem> items = new ArrayList<>();
+        for (Product product : products) {
+            ProposalItem item = new ProposalItem();
+            item.setProposal(proposal);
+            item.setProduct(product);
+            item.setQuantity(cart.get(product.getProductId()));
+            item.setBasePrice(product.getPrice());
+            item.setCoefficient(coefficientMap.getOrDefault(product.getProductId(), 1.0));
+            item.setFinalPrice(item.getBasePrice() * item.getCoefficient());
+
+            items.add(item);
+        }
+        proposal.getItems().clear();
+        proposal.getItems().addAll(items);
+        proposalRepo.save(proposal);
+
 
         return "proposal";
     }
@@ -478,17 +524,16 @@ public class ProductFilterController {
     public void downloadProposalPdf(HttpServletResponse response, HttpSession session) throws IOException {
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("proposalCart");
         List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
-        Double totalSum = (Double) session.getAttribute("proposalTotal");
+        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("proposalCoefficients");
 
         if (cart == null || products == null || cart.isEmpty()) {
             response.sendRedirect("/cart");
             return;
         }
 
-
-
-        // Преобразуем в сет именно Integer, иначе будет ошибка типов
-        Set<Integer> productIds = new HashSet<>(cart.keySet());
+        if (coefficientMap == null) {
+            coefficientMap = new HashMap<>();
+        }
 
         response.setContentType("application/pdf");
         response.setHeader("Content-Disposition", "attachment; filename=proposal.pdf");
@@ -499,39 +544,46 @@ public class ProductFilterController {
             document.open();
 
             Font titleFont = new Font(Font.HELVETICA, 18, Font.BOLD);
-            document.add(new Paragraph("\u041a\u043e\u043c\u043c\u0435\u0440\u0447\u0435\u0441\u043a\u043e\u0435 \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0435", titleFont));
+            document.add(new Paragraph("Коммерческое предложение", titleFont));
             document.add(new Paragraph(" "));
 
-            PdfPTable table = new PdfPTable(4);
+            PdfPTable table = new PdfPTable(6); // 6 колонок
             table.setWidthPercentage(100);
-            table.addCell("\u041d\u0430\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435");
-            table.addCell("\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e");
-            table.addCell("\u0426\u0435\u043d\u0430 \u0437\u0430 \u0435\u0434\u0438\u043d\u0438\u0446\u0443");
-            table.addCell("\u0421\u0443\u043c\u043c\u0430");
+            table.addCell("Наименование");
+            table.addCell("Кол-во");
+            table.addCell("Базовая цена");
+            table.addCell("Коэф.");
+            table.addCell("Цена продажи");
+            table.addCell("Сумма");
 
-            double total = 0;
+            double total = 0.0;
 
             for (Product product : products) {
                 int qty = cart.getOrDefault(product.getProductId(), 1);
-                double price = product.getPrice() != null ? product.getPrice().doubleValue() : 0.0;
-                double sum = price * qty;
+                double basePrice = product.getPrice() != null ? product.getPrice() : 0.0;
+                double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
+                double finalPrice = basePrice * coeff;
+                double sum = finalPrice * qty;
                 total += sum;
 
                 table.addCell(product.getName());
                 table.addCell(String.valueOf(qty));
-                table.addCell(String.format("%.2f", price));
-                table.addCell(String.format("%.2f", sum));
+                table.addCell(String.format("%,.2f", basePrice));
+                table.addCell(String.format("%.2f", coeff));
+                table.addCell(String.format("%,.2f", finalPrice));
+                table.addCell(String.format("%,.2f", sum));
             }
 
             document.add(table);
             document.add(new Paragraph(" "));
-            document.add(new Paragraph("\u0418\u0442\u043e\u0433\u043e: " + String.format("%.2f", total) + " \u0442\u0433"));
+            document.add(new Paragraph("Итого: " + String.format("%,.2f", total) + " тг"));
 
             document.close();
         } catch (DocumentException e) {
             throw new IOException("Error while generating PDF", e);
         }
     }
+
 
     @GetMapping("/admin/add-product")
     public String showAddProductForm(Model model, HttpSession session) {
@@ -616,6 +668,10 @@ public class ProductFilterController {
         List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
         Double totalSum = (Double) session.getAttribute("proposalTotal");
 
+        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("proposalCoefficients");
+        if (coefficientMap == null) coefficientMap = new HashMap<>();
+
+
         // Проверка на null
         if (cart == null || products == null || cart.isEmpty() || totalSum == null) {
             response.sendRedirect("/proposal");
@@ -628,6 +684,11 @@ public class ProductFilterController {
         try (Workbook workbook = new XSSFWorkbook(); OutputStream out = response.getOutputStream()) {
             Sheet sheet = workbook.createSheet("Смета");
 
+            DataFormat format = workbook.createDataFormat();
+            CellStyle priceStyle = workbook.createCellStyle();
+            priceStyle.setDataFormat(format.getFormat("# ##0.00"));
+
+
             // Заголовки
             Row header = sheet.createRow(0);
             String[] headers = {"№", "Наименование затрат", "Ед. изм.", "Количество", "Цена, тг", "Сумма, тг"};
@@ -637,25 +698,39 @@ public class ProductFilterController {
 
             // Содержимое
             int rowIdx = 1;
+            double total = 0.0;
+
             for (int i = 0; i < products.size(); i++) {
                 Product product = products.get(i);
                 int qty = cart.getOrDefault(product.getProductId(), 1);
-                double price = product.getPrice() != null ? product.getPrice() : 0.0;
-                double sum = qty * price;
+                double basePrice = product.getPrice() != null ? product.getPrice() : 0.0;
+                double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
+                double finalPrice = basePrice * coeff;
+                double sum = qty * finalPrice;
+                total += sum;
+
 
                 Row row = sheet.createRow(rowIdx++);
                 row.createCell(0).setCellValue(i + 1);
                 row.createCell(1).setCellValue(product.getName());
                 row.createCell(2).setCellValue("шт.");
                 row.createCell(3).setCellValue(qty);
-                row.createCell(4).setCellValue(price);
-                row.createCell(5).setCellValue(sum);
+                Cell finalPriceCell = row.createCell(4);
+                finalPriceCell.setCellValue(finalPrice);
+                finalPriceCell.setCellStyle(priceStyle);
+
+                Cell sumCell = row.createCell(5);
+                sumCell.setCellValue(sum);
+                sumCell.setCellStyle(priceStyle);
+
             }
 
             // Итоговая строка
             Row totalRow = sheet.createRow(rowIdx);
             totalRow.createCell(4).setCellValue("Итого:");
-            totalRow.createCell(5).setCellValue(totalSum);
+            Cell totalCell = totalRow.createCell(5);
+            totalCell.setCellValue(total);
+            totalCell.setCellStyle(priceStyle);
 
             workbook.write(out);
         }
@@ -682,7 +757,125 @@ public class ProductFilterController {
         }).collect(Collectors.toList());
     }
 
+    @GetMapping("/proposal/excel-kp")
+    public void downloadProposalExcelKp(HttpServletResponse response, HttpSession session) throws IOException {
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("proposalCart");
+        List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
+        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("proposalCoefficients");
 
+        if (cart == null || products == null || cart.isEmpty()) {
+            response.sendRedirect("/proposal");
+            return;
+        }
+
+        if (coefficientMap == null) coefficientMap = new HashMap<>();
+
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setHeader("Content-Disposition", "attachment; filename=kp.xlsx");
+
+        try (Workbook workbook = new XSSFWorkbook(); OutputStream out = response.getOutputStream()) {
+            Sheet sheet = workbook.createSheet("Коммерческое предложение");
+
+            // Создаём стиль для чисел с пробелами (Excel интерпретирует их как , в русской локали)
+            CellStyle priceStyle = workbook.createCellStyle();
+            DataFormat format = workbook.createDataFormat();
+            priceStyle.setDataFormat(format.getFormat("#,##0.00"));
+
+            // Заголовки
+            Row header = sheet.createRow(0);
+            String[] columns = {"№", "Наименование", "Бренд", "Кол-во", "Базовая цена", "Коэф.", "Цена с коэф.", "Сумма"};
+            for (int i = 0; i < columns.length; i++) {
+                header.createCell(i).setCellValue(columns[i]);
+            }
+
+            int rowIdx = 1;
+            double total = 0.0;
+
+            for (int i = 0; i < products.size(); i++) {
+                Product product = products.get(i);
+                int qty = cart.getOrDefault(product.getProductId(), 1);
+                double basePrice = product.getPrice() != null ? product.getPrice() : 0.0;
+                double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
+                double priceWithCoeff = basePrice * coeff;
+                double sum = priceWithCoeff * qty;
+
+                Row row = sheet.createRow(rowIdx++);
+                row.createCell(0).setCellValue(i + 1);
+                row.createCell(1).setCellValue(product.getName());
+                row.createCell(2).setCellValue(product.getBrand().getBrandName());
+                row.createCell(3).setCellValue(qty);
+
+                Cell basePriceCell = row.createCell(4);
+                basePriceCell.setCellValue(basePrice);
+                basePriceCell.setCellStyle(priceStyle);
+
+                row.createCell(5).setCellValue(coeff);
+
+                Cell coeffPriceCell = row.createCell(6);
+                coeffPriceCell.setCellValue(priceWithCoeff);
+                coeffPriceCell.setCellStyle(priceStyle);
+
+                Cell sumCell = row.createCell(7);
+                sumCell.setCellValue(sum);
+                sumCell.setCellStyle(priceStyle);
+
+                total += sum;
+            }
+
+            // Итоговая строка
+            Row totalRow = sheet.createRow(rowIdx);
+            totalRow.createCell(6).setCellValue("Итого:");
+            Cell totalCell = totalRow.createCell(7);
+            totalCell.setCellValue(total);
+            totalCell.setCellStyle(priceStyle);
+
+            workbook.write(out);
+        }
+    }
+
+    @GetMapping("/proposal/history")
+    public String proposalHistory(Model model) {
+        List<Proposal> proposals = proposalRepo.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+        model.addAttribute("proposals", proposals);
+        return "proposal_history";
+    }
+
+
+    @ModelAttribute
+    public void addGlobalAttributes(Model model) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
+
+        List<Proposal> proposals = proposalRepo.findAllByOrderByTimestampDesc();
+
+        List<ProposalHistoryView> historyViews = proposals.stream()
+                .map(p -> new ProposalHistoryView(
+                        p.getName(),
+                        p.getTotalSum(),
+                        p.getFilePath(),
+                        p.getTimestamp() != null ? p.getTimestamp().format(formatter) : ""
+                ))
+                .toList();
+
+        model.addAttribute("proposalHistory", historyViews);
+    }
+
+
+    @GetMapping("/proposal/download/{filename}")
+    @ResponseBody
+    public ResponseEntity<Resource> downloadFile(@PathVariable String filename) throws IOException {
+        Path file = Paths.get("generated", filename);
+
+        if (!Files.exists(file)) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Resource resource = new FileSystemResource(file);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + filename)
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(resource);
+    }
 
 
 }

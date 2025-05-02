@@ -1,0 +1,32 @@
+    <div th:fragment="proposalHistoryModal">
+        <button class="btn btn-outline-secondary position-fixed top-50 start-0 translate-middle-y" style="z-index: 1051" onclick="toggleSidebar()">
+            📜 История
+        </button>
+
+        <div id="historySidebar" class="position-fixed top-0 start-0 bg-light shadow p-3" style="width: 320px; height: 100vh; overflow-y: auto; transform: translateX(-100%); transition: 0.3s; z-index: 1050;">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">История предложений</h5>
+                <button class="btn-close" onclick="toggleSidebar()"></button>
+            </div>
+
+            <div th:if="${#lists.isEmpty(proposalHistory)}">Нет сохранённых предложений</div>
+
+            <ul class="list-group">
+                <li class="list-group-item d-flex flex-column" th:each="p : ${proposalHistory}">
+                    <strong th:text="${p.name}"></strong>
+                    <small th:text="${p.formattedTimestamp}"></small>
+                    <div class="d-flex justify-content-between mt-2">
+                        <span th:text="${p.totalSum + ' ₸'}"></span>
+                        <a class="btn btn-sm btn-outline-success" th:href="@{/generated/{file}(file=${p.filePath})}" download>Скачать</a>
+                    </div>
+                </li>
+            </ul>
+        </div>
+
+        <script>
+            function toggleSidebar() {
+                const sidebar = document.getElementById('historySidebar');
+                sidebar.style.transform = sidebar.style.transform === 'translateX(0%)' ? 'translateX(-100%)' : 'translateX(0%)';
+            }
+        </script>
+    </div>

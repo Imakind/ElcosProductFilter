@@ -13,7 +13,6 @@
         <tr>
             <th>Наименование</th>
             <th>Бренд</th>
-            <th>Параметры</th>
             <th>Цена</th>
         </tr>
         </thead>
@@ -22,29 +21,30 @@
             <td th:text="${product.name}">Название</td>
             <td th:text="${product.brand.brandName}">Бренд</td>
             <td>
-                <ul th:if="${paramMap[product.productId] != null}">
-                    <li th:text="'Параметр 1: ' + ${paramMap[product.productId].param1}"></li>
-                    <li th:text="'Параметр 2: ' + ${paramMap[product.productId].param2}"></li>
-                    <li th:text="'Параметр 3: ' + ${paramMap[product.productId].param3}"></li>
-                    <li th:text="'Параметр 4: ' + ${paramMap[product.productId].param4}"></li>
-                    <li th:text="'Параметр 5: ' + ${paramMap[product.productId].param5}"></li>
-                </ul>
+                <div class="price-format" th:text="${product.price}">0</div>
+                <div th:if="${quantities[product.productId] != null and coefficientMap[product.productId] != null}" class="text-danger">
+                    Цена продажи:
+                    <span class="price-format"
+                          th:text="${product.price * coefficientMap[product.productId]}">0</span>
+                    ₸
+                </div>
             </td>
-            <td th:text="${product.price} + ' ₸'">Цена</td>
-            <th>Кол-во</th>
             <td th:text="${quantities[product.productId]}">1</td>
-            <tfoot>
-                <tr>
-                    <td colspan="3" class="text-end fw-bold">Общая сумма:</td>
-                    <td th:text="${totalSum} + ' ₸'">0 ₸</td>
-                </tr>
-            </tfoot>
-
         </tr>
         </tbody>
+        <tfoot>
+        <tr>
+            <td colspan="3" class="text-end fw-bold">Общая сумма:</td>
+            <td class="price-format" th:text="${totalSum}">0</td>
+        </tr>
+        </tfoot>
+
     </table>
 
     <a href="/proposal/pdf" class="btn btn-outline-secondary">📄 Скачать КП в PDF</a>
+    <br>
+    <a href="/proposal/excel-kp" class="btn btn-outline-secondary">📥 Скачать КП в Excel</a>
+    <br>
     <div class="d-flex justify-content-between mt-4">
         <a href="/cart" class="btn btn-secondary">← Вернуться в корзину</a>
         <a href="/proposal/excel" class="btn btn-success">📥 Скачать смету в Excel</a>
@@ -52,5 +52,18 @@
     <a href="/" class="btn btn-primary">← Вернуться к фильтру</a>
 
 </div>
+
+<div th:replace="~{fragments/history_modal :: proposalHistoryModal}"></div>
+
+
+<script>
+    document.querySelectorAll(".price-format").forEach(el => {
+        const num = parseFloat(el.innerText.replace(",", "."));
+        if (!isNaN(num)) {
+            el.innerText = num.toLocaleString('ru-RU', { minimumFractionDigits: 2 });
+        }
+    });
+</script>
+
 </body>
 </html>

@@ -429,6 +429,10 @@
 </div>
 
 
+<div th:replace="~{fragments/history_modal :: proposalHistoryModal}"></div>
+
+
+
 <script th:inline="javascript">
     let currentPage = /*[[${currentPage}]]*/ 0;
     const totalPages = /*[[${totalPages}]]*/ 1;
