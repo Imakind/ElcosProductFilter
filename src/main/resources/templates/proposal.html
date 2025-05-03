@@ -60,10 +60,15 @@
     document.querySelectorAll(".price-format").forEach(el => {
         const num = parseFloat(el.innerText.replace(",", "."));
         if (!isNaN(num)) {
-            el.innerText = num.toLocaleString('ru-RU', { minimumFractionDigits: 2 });
+            el.innerText = num.toLocaleString('ru-RU', {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+                useGrouping: true
+            });
         }
     });
 </script>
+
 
 </body>
 </html>

@@ -364,6 +364,8 @@ public class ProductFilterController {
                 ? productRepo.findAllById(cart.keySet())
                 : List.of();
 
+
+
         // Параметры товаров
         List<ProductParameters> parameters = parameterRepo.findByProduct_ProductIdIn(
                 products.stream().map(Product::getProductId).collect(Collectors.toSet())
@@ -418,6 +420,10 @@ public class ProductFilterController {
         }
         model.addAttribute("totalSum", totalSum);
 
+        int totalQuantity = cart.values().stream().mapToInt(Integer::intValue).sum();
+        model.addAttribute("totalQuantity", totalQuantity);
+
+
         return "cart";
     }
 
@@ -460,23 +466,25 @@ public class ProductFilterController {
 
         List<Product> products = productRepo.findAllById(cart.keySet());
 
-        // 1. Считаем итоговую сумму
+        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
+        if (coefficientMap == null) {
+            coefficientMap = new HashMap<>();
+        }
+
         double totalSum = 0.0;
         for (Product product : products) {
             int qty = cart.getOrDefault(product.getProductId(), 1);
-            double price = product.getPrice() != null ? product.getPrice() : 0.0;
-            totalSum += price * qty;
+            double basePrice = product.getPrice() != null ? product.getPrice() : 0.0;
+            double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
+            double finalPrice = basePrice * coeff;
+            totalSum += finalPrice * qty;
         }
+
 
         // 2. Параметры
         List<ProductParameters> parameters = parameterRepo.findByProduct_ProductIdIn(cart.keySet());
         Map<Integer, ProductParameters> paramMap = parameters.stream()
                 .collect(Collectors.toMap(p -> p.getProduct().getProductId(), p -> p));
-
-        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
-        if (coefficientMap == null) {
-            coefficientMap = new HashMap<>();
-        }
 
 
         model.addAttribute("products", products);
@@ -877,5 +885,11 @@ public class ProductFilterController {
                 .body(resource);
     }
 
+    public static String formatPrice(Double price) {
+        if (price == null) return "0";
+        return String.format("%,.1f", price)
+                .replace(',', ' ')  // заменяем запятую-разделитель тысяч на пробел
+                .replace('.', ','); // заменяем точку на запятую (1.5 → 1,5)
+    }
 
 }

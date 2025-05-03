@@ -24,7 +24,7 @@
                 </h5>
                 <small th:text="'Бренд: ' + ${prod.brand.brandName}"></small><br>
                 <small class="text-danger" th:if="${prod.price != null}"
-                       th:text="'Цена: ' + ${#strings.replace(#numbers.formatDecimal(prod.price, 1, 'COMMA', 2, 'POINT'), ',', ' ')} + ' ₸'"></small>
+                       th:text="'Цена: ' + ${#strings.replace(#numbers.formatDecimal(prod.price, 1, 'COMMA', 1, 'POINT'), ',', ' ')} + ' ₸'"></small>
                 <small class="text-danger" th:if="${prod.price == null}" th:text="'Цена: Не указана'"></small>
             </div>
         </div>

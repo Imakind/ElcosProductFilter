@@ -7,294 +7,127 @@
 </head>
 <body class="p-4">
 <div class="container">
-    <h2>Корзина</h2>
-    <a th:href="@{/filter/results(
-    brandId=${filterParams['brandId']},
-    groupId=${filterParams['groupId']},
-    subGroupId=${filterParams['subGroupId']},
-    param1=${filterParams['param1']},
-    param2=${filterParams['param2']},
-    param3=${filterParams['param3']},
-    param4=${filterParams['param4']},
-    param5=${filterParams['param5']}
-)}" class="btn btn-secondary mb-3">← Назад к фильтру</a>
+    <h2 class="mb-4">Корзина</h2>
 
-
-
-
-    <div th:if="${#lists.isEmpty(cartProducts)}">
-        <p>Корзина пуста.</p>
-    </div>
-    <div class="list-group mb-4">
-        <div class="list-group-item d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center"
-             th:each="product : ${cartProducts}"
-             th:id="'product-' + ${product.productId}">
-
-            <!-- Левая часть -->
-            <div class="me-3 flex-grow-1">
-                <h5 class="mb-1" th:text="${product.name}">Название товара</h5>
-                <small th:text="'Бренд: ' + ${product.brand.brandName}"></small><br>
-                <small th:text="'Артикул: ' + ${product.articleCode}"></small><br>
-                <br>
-                <small th:text="'Базовая цена: ' + ${product.price} + ' ₸'"></small><br>
-
-                <small class="mt-1 d-block">
-                    Цена за количество:
-                    <span th:id="'price-for-quantity-' + ${product.productId}"
-                          th:attr="data-base-price=${product.price}"
-                          th:text="${product.price * quantities[product.productId]}">0</span> ₸
-                </small>
-
-                <small class="text-danger d-block mt-1">
-                    Цена продажи:
-                    <span th:id="'final-price-' + ${product.productId}">0</span> ₸
-                </small>
-
-            </div>
-
-            <!-- Правая часть -->
-            <div class="d-flex flex-column gap-2 mt-2" style="max-width: 200px;">
-                <label>
-                    <span>Количество:</span>
-                    <div class="input-group input-group-sm">
-                        <button class="btn btn-outline-secondary"
-                                th:onclick="'removeFromCartInCartPage(' + ${product.productId} + ')'">➖</button>
-                        <input type="number" min="1" class="form-control text-center"
-                               th:id="'counter-' + ${product.productId}"
-                               th:value="${quantities[product.productId]}"
-                               onchange="manualQuantityChange(this)">
-                        <button class="btn btn-outline-secondary"
-                                th:onclick="'addToCartInCartPage(' + ${product.productId} + ')'">➕</button>
-                    </div>
-                </label>
-
-                <label>
-                    <span>Коэффициент:</span>
-                    <input type="number" step="0.01" class="form-control form-control-sm"
+    <div class="table-responsive">
+        <table class="table table-bordered align-middle text-center">
+            <thead class="table-light">
+            <tr>
+                <th>№</th>
+                <th>Наименование</th>
+                <th>Артикул</th>
+                <th>Бренд</th>
+                <th>Кол-во</th>
+                <th>Базовая цена</th>
+                <th>Сумма базовая</th>
+                <th>Коэф.</th>
+                <th>Цена</th>
+                <th>Сумма</th>
+                <th>Маржа</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="product, iterStat : ${cartProducts}">
+                <td th:text="${iterStat.count}">1</td>
+                <td th:text="${product.name}">Название</td>
+                <td th:text="${product.articleCode}">Код</td>
+                <td th:text="${product.brand.brandName}">Бренд</td>
+                <td>
+                    <input type="number" min="1" class="form-control form-control-sm text-center"
+                           th:id="'counter-' + ${product.productId}"
+                           th:value="${quantities[product.productId]}"
+                           onchange="manualQuantityChange(this)">
+                </td>
+                <td th:text="${#numbers.formatDecimal(product.price, 1, 'COMMA', 1, 'POINT')}">0</td>
+                <td th:id="'base-sum-' + ${product.productId}"
+                    th:text="${#numbers.formatDecimal(product.price * quantities[product.productId], 1, 'COMMA', 1, 'POINT')}">0</td>
+                <td>
+                    <input type="number" step="0.1" class="form-control form-control-sm text-center"
                            th:id="'coefficient-' + ${product.productId}"
-                           th:attr="data-coefficient=${coefficientMap[product.productId] != null ? coefficientMap[product.productId] : 1.0}"
                            th:value="${coefficientMap[product.productId] != null ? coefficientMap[product.productId] : 1.0}"
                            oninput="coefficientInputChanged(this)">
-                </label>
-            </div>
-
-        </div>
+                </td>
+                <td th:id="'unit-price-' + ${product.productId}">0</td>
+                <td th:id="'total-sum-' + ${product.productId}">0</td>
+                <td th:id="'margin-' + ${product.productId}">0</td>
+            </tr>
+            </tbody>
+            <tfoot>
+            <tr class="fw-bold">
+                <td colspan="4" class="text-end">Итого:</td>
+                <td th:text="${totalQuantity}">0</td>
+                <td></td>
+                <td th:id="total-base">0</td>
+                <td></td>
+                <td></td>
+                <td th:id="total-final">0</td>
+                <td th:id="total-margin">0</td>
+            </tr>
+            </tfoot>
+        </table>
     </div>
-
-
-
-
-    <h4 class="mt-4">
-        Общая сумма: <span id="total-sum" th:text="${totalSum}">0</span> ₸
-    </h4>
-
-    <button type="button" class="btn btn-danger mt-2" onclick="clearCart()">Сбросить корзину</button>
-
-
-    <form th:action="@{/cart/confirm}" method="post">
-        <button type="submit" class="btn btn-success mt-3">Подтвердить заказ</button>
-    </form>
-
 </div>
 
-<div th:replace="~{fragments/history_modal :: proposalHistoryModal}"></div>
-
-
-
 <script>
-    let coefficientTimeouts = {};
-
-    function coefficientInputChanged(input) {
-        const productId = input.id.split('-')[1];
-        const newCoefficient = parseFloat(input.value);
-
-        if (isNaN(newCoefficient) || newCoefficient <= 0) {
-            input.value = 1.0;
-            return;
-        }
-
-        const previousCoefficient = parseFloat(input.getAttribute('data-coefficient'));
-
-        if (previousCoefficient === newCoefficient) {
-            // НИЧЕГО не меняем, если коэффициент тот же самый
-            return;
-        }
-
-        // Очищаем старую задержку, если быстро набрали
-        if (coefficientTimeouts[productId]) {
-            clearTimeout(coefficientTimeouts[productId]);
-        }
-
-        // Ставим новую задержку
-        coefficientTimeouts[productId] = setTimeout(() => {
-            fetch('/cart/coefficient', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: 'productId=' + productId + '&coefficient=' + newCoefficient
-            })
-                .then(() => {
-                    input.setAttribute('data-coefficient', newCoefficient); // обновляем сохранённое значение
-                    recalculateTotalPrice(productId);
-                    recalculateTotalSum();
-                });
-        }, 500); // ждать 0.5 секунды после последнего изменения
-    }
     document.addEventListener('DOMContentLoaded', function () {
-        const allProducts = document.querySelectorAll('[id^="product-"]');
-        allProducts.forEach(productDiv => {
-            const productId = productDiv.id.split('-')[1];
-            recalculateTotalPrice(productId);
-        });
+        const rows = document.querySelectorAll('tr[id^="product-"]');
+        recalculateAll();
 
-        recalculateTotalSum(); // и сразу пересчитаем общую сумму
+        document.querySelectorAll('input[id^="coefficient-"]').forEach(input => {
+            input.addEventListener('input', () => recalculateAll());
+        });
     });
-    function removeFromCartInCartPage(productId) {
-        fetch('/cart/remove', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'productId=' + productId
-        })
-            .then(() => {
-                const counter = document.getElementById('counter-' + productId);
-                const priceForQuantity = document.getElementById('price-for-quantity-' + productId);
-                if (counter && priceForQuantity) {
-                    let newValue = parseInt(counter.value) - 1;
-                    if (newValue <= 0) {
-                        const productBlock = document.getElementById('product-' + productId);
-                        if (productBlock) {
-                            productBlock.remove();
-                        }
-                    } else {
-                        counter.value = newValue;
-                        const basePrice = parseFloat(priceForQuantity.getAttribute('data-base-price'));
-                        priceForQuantity.innerText = (basePrice * newValue).toFixed(2);
-                        recalculateTotalPrice(productId);
-                    }
-                }
-                refreshCartCounter();
-                recalculateTotalSum();
-
-            });
-    }
-
-    function addToCartInCartPage(productId) {
-        fetch('/cart/add?productId=' + productId, { method: 'POST' })
-            .then(() => {
-                const counter = document.getElementById('counter-' + productId);
-                const priceForQuantity = document.getElementById('price-for-quantity-' + productId);
-                if (counter && priceForQuantity) {
-                    let newValue = parseInt(counter.value) + 1;
-                    counter.value = newValue;
-                    const basePrice = parseFloat(priceForQuantity.getAttribute('data-base-price'));
-                    priceForQuantity.innerText = (basePrice * newValue).toFixed(2);
-                    recalculateTotalPrice(productId);
-                }
-                refreshCartCounter();
-                recalculateTotalSum();
-
-            });
-    }
-
-
-    function recalculateTotalPrice(productId) {
-        const counter = document.getElementById('counter-' + productId);
-        const coefficientInput = document.getElementById('coefficient-' + productId);
-        const finalPrice = document.getElementById('final-price-' + productId);
-        const priceForQuantity = document.getElementById('price-for-quantity-' + productId);
-
-        if (counter && coefficientInput && finalPrice && priceForQuantity) {
-            let quantity = parseInt(counter.value); // ВАЖНО использовать .value если input
-            let coefficient = parseFloat(coefficientInput.value);
-            let basePrice = parseFloat(priceForQuantity.getAttribute('data-base-price'));
-
-            const totalWithoutCoefficient = basePrice * quantity;
-            finalPrice.innerText = (totalWithoutCoefficient * coefficient).toFixed(2);
-        }
-    }
-
-
-    function recalculateTotalSum() {
-        let total = 0.0;
-        const finalPrices = document.querySelectorAll('[id^="final-price-"]');
-        finalPrices.forEach(span => {
-            total += parseFloat(span.innerText) || 0;
-        });
-
-        const totalSumElement = document.getElementById('total-sum');
-        if (totalSumElement) {
-            totalSumElement.innerText = total.toFixed(2);
-        }
-    }
-
-    function refreshCartCounter() {
-        fetch('/cart/count')
-            .then(response => response.text())
-            .then(count => {
-                const cartCounter = document.getElementById('cart-counter');
-                if (cartCounter) {
-                    cartCounter.innerText = count;
-                }
-            });
-    }
 
     function manualQuantityChange(input) {
         const productId = input.id.split('-')[1];
-        const newQuantity = parseInt(input.value);
-
-        if (isNaN(newQuantity) || newQuantity <= 0) {
-            input.value = 1;
-            return;
+        const qty = parseFloat(input.value);
+        if (qty > 0) {
+            fetch('/cart/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'productId=' + productId + '&quantity=' + qty
+            }).then(() => recalculateAll());
         }
-
-        fetch('/cart/update', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: 'productId=' + productId + '&quantity=' + newQuantity
-        })
-            .then(() => {
-                const priceForQuantity = document.getElementById('price-for-quantity-' + productId);
-                const basePrice = parseFloat(priceForQuantity.getAttribute('data-base-price'));
-                priceForQuantity.innerText = (basePrice * newQuantity).toFixed(2);
-
-                recalculateTotalPrice(productId);
-                refreshCartCounter();
-                recalculateTotalSum();
-
-            });
     }
 
-    function coefficientChanged(productId) {
-        const coefficientInput = document.getElementById('coefficient-' + productId);
-        const newCoefficient = parseFloat(coefficientInput.value);
-
-        fetch('/cart/coefficient', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: 'productId=' + productId + '&coefficient=' + newCoefficient
-        })
-            .then(() => {
-                recalculateTotalPrice(productId);
-                recalculateTotalSum();
-            });
+    function coefficientInputChanged(input) {
+        const productId = input.id.split('-')[1];
+        const value = parseFloat(input.value);
+        if (!isNaN(value) && value > 0) {
+            fetch('/cart/coefficient', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'productId=' + productId + '&coefficient=' + value
+            }).then(() => recalculateAll());
+        }
     }
 
-    function clearCart() {
-        fetch('/cart/clear', { method: 'POST' })
-            .then(() => {
-                location.reload(); // обновим страницу
-            });
-    }
+    function recalculateAll() {
+        let totalBase = 0;
+        let totalFinal = 0;
 
+        document.querySelectorAll('input[id^="counter-"]').forEach(counterInput => {
+            const productId = counterInput.id.split('-')[1];
+            const qty = parseFloat(document.getElementById('counter-' + productId)?.value || 1);
+            const base = parseFloat(document.getElementById('base-sum-' + productId)?.innerText.replace(',', '.') || 0);
+            const coeff = parseFloat(document.getElementById('coefficient-' + productId)?.value || 1);
+
+            const unitPrice = (base / qty) * coeff;
+            const total = unitPrice * qty;
+            const margin = total - base;
+
+            document.getElementById('unit-price-' + productId).innerText = unitPrice.toFixed(1);
+            document.getElementById('total-sum-' + productId).innerText = total.toFixed(1);
+            document.getElementById('margin-' + productId).innerText = margin.toFixed(1);
+
+            totalBase += base;
+            totalFinal += total;
+        });
+
+        document.getElementById('total-base').innerText = totalBase.toFixed(1);
+        document.getElementById('total-final').innerText = totalFinal.toFixed(1);
+        document.getElementById('total-margin').innerText = (totalFinal - totalBase).toFixed(1);
+    }
 </script>
-
-
-
-
 </body>
 </html>
