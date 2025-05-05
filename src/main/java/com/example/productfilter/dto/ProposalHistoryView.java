@@ -1,31 +1,34 @@
 package com.example.productfilter.dto;
 
 public class ProposalHistoryView {
+    private Long id;
     private String name;
     private Double totalSum;
     private String filePath;
     private String formattedTimestamp;
+    private Long proposalId;
 
-    public ProposalHistoryView(String name, Double totalSum, String filePath, String formattedTimestamp) {
+    // Конструктор
+    public ProposalHistoryView(Long id, String name, Double totalSum, String filePath, String formattedTimestamp) {
+        this.id = id;
         this.name = name;
         this.totalSum = totalSum;
         this.filePath = filePath;
         this.formattedTimestamp = formattedTimestamp;
     }
 
-    public String getName() {
-        return name;
+    // Геттеры
+    public Long getProposalId() {
+        return proposalId;
     }
 
-    public Double getTotalSum() {
-        return totalSum;
+    public void setProposalId(Long proposalId) {
+        this.proposalId = proposalId;
     }
 
-    public String getFilePath() {
-        return filePath;
-    }
-
-    public String getFormattedTimestamp() {
-        return formattedTimestamp;
-    }
+    public Long getId() { return id; }
+    public String getName() { return name; }
+    public Double getTotalSum() { return totalSum; }
+    public String getFilePath() { return filePath; }
+    public String getFormattedTimestamp() { return formattedTimestamp; }
 }

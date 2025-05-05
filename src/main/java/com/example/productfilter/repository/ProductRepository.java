@@ -12,5 +12,6 @@ public interface ProductRepository extends JpaRepository<Product, Integer> {
     List<Product> findByBrand_BrandId(Integer brandId);
     Page<Product> findAllByProductIdIn(Collection<Integer> productIds, Pageable pageable);
     boolean existsByArticleCode(String articleCode);
+    Optional<Product> findByArticleCode(String articleCode);
 
 }

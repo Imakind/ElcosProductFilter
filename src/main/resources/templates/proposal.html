@@ -7,54 +7,51 @@
 </head>
 <body class="p-4">
 <div class="container">
-    <h2>Коммерческое предложение</h2>
-    <table class="table table-bordered mt-4">
-        <thead>
+    <h2 class="mb-4">Коммерческое предложение</h2>
+
+    <table class="table table-bordered text-center align-middle">
+        <thead class="table-light">
         <tr>
+            <th>№</th>
             <th>Наименование</th>
+            <th>Артикул</th>
             <th>Бренд</th>
+            <th>Кол-во</th>
             <th>Цена</th>
+            <th>Сумма</th>
         </tr>
         </thead>
         <tbody>
-        <tr th:each="product : ${products}">
+        <tr th:each="product, stat : ${products}">
+            <td th:text="${stat.index + 1}">1</td>
             <td th:text="${product.name}">Название</td>
+            <td th:text="${product.articleCode}">Артикул</td>
             <td th:text="${product.brand.brandName}">Бренд</td>
-            <td>
-                <div class="price-format" th:text="${product.price}">0</div>
-                <div th:if="${quantities[product.productId] != null and coefficientMap[product.productId] != null}" class="text-danger">
-                    Цена продажи:
-                    <span class="price-format"
-                          th:text="${product.price * coefficientMap[product.productId]}">0</span>
-                    ₸
-                </div>
-            </td>
             <td th:text="${quantities[product.productId]}">1</td>
+            <td class="price-format"
+                th:text="${finalPrices[product.productId]}">0</td>
+            <td class="price-format"
+                th:text="${totalSums[product.productId]}">0</td>
         </tr>
         </tbody>
         <tfoot>
-        <tr>
-            <td colspan="3" class="text-end fw-bold">Общая сумма:</td>
+        <tr class="fw-bold">
+            <td colspan="4" class="text-end">Итого:</td>
+            <td th:text="${totalQuantity}">0</td>
+            <td></td>
             <td class="price-format" th:text="${totalSum}">0</td>
         </tr>
         </tfoot>
-
     </table>
 
+
     <a href="/proposal/pdf" class="btn btn-outline-secondary">📄 Скачать КП в PDF</a>
-    <br>
-    <a href="/proposal/excel-kp" class="btn btn-outline-secondary">📥 Скачать КП в Excel</a>
-    <br>
+    <a href="/proposal/excel-kp" class="btn btn-outline-secondary ms-2">📥 Скачать КП в Excel</a>
     <div class="d-flex justify-content-between mt-4">
         <a href="/cart" class="btn btn-secondary">← Вернуться в корзину</a>
-        <a href="/proposal/excel" class="btn btn-success">📥 Скачать смету в Excel</a>
+        <a href="/clear-cart-and-return" class="btn btn-primary">← Вернуться к фильтру</a>
     </div>
-    <a href="/" class="btn btn-primary">← Вернуться к фильтру</a>
-
 </div>
-
-<div th:replace="~{fragments/history_modal :: proposalHistoryModal}"></div>
-
 
 <script>
     document.querySelectorAll(".price-format").forEach(el => {
@@ -68,7 +65,5 @@
         }
     });
 </script>
-
-
 </body>
 </html>

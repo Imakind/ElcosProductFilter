@@ -7,7 +7,28 @@
 </head>
 <body class="p-4">
 <div class="container">
-    <h2 class="mb-4">Корзина</h2>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Корзина</h2>
+
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="clearCart()">
+                🔄 reset
+            </button>
+
+            <button type="button" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#saveProjectModal">
+                💾 Сохранить проект
+            </button>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <label for="global-coefficient" class="form-label fw-bold">Общий коэффициент:</label>
+        <input type="number" step="0.1" min="0.1" id="global-coefficient"
+               class="form-control text-center" style="max-width: 100px;" value="1.0"
+               oninput="applyGlobalCoefficient()">
+    </div>
+
+
 
     <div class="table-responsive">
         <table class="table table-bordered align-middle text-center">
@@ -38,9 +59,13 @@
                            th:value="${quantities[product.productId]}"
                            onchange="manualQuantityChange(this)">
                 </td>
-                <td th:text="${#numbers.formatDecimal(product.price, 1, 'COMMA', 1, 'POINT')}">0</td>
+                <td th:id="'base-price-' + ${product.productId}"
+                    th:text="${#strings.replace(#numbers.formatDecimal(product.price, 1, 'COMMA', 1, 'POINT'), ',', ' ').replace('.', ',')}">
+                </td>
+
+
                 <td th:id="'base-sum-' + ${product.productId}"
-                    th:text="${#numbers.formatDecimal(product.price * quantities[product.productId], 1, 'COMMA', 1, 'POINT')}">0</td>
+                    th:text="${#strings.replace(#numbers.formatDecimal(product.price * quantities[product.productId], 1, 'COMMA', 1, 'POINT'), '.', ' ').replace('.', ',')}">0</td>
                 <td>
                     <input type="number" step="0.1" class="form-control form-control-sm text-center"
                            th:id="'coefficient-' + ${product.productId}"
@@ -54,8 +79,8 @@
             </tbody>
             <tfoot>
             <tr class="fw-bold">
-                <td colspan="4" class="text-end">Итого:</td>
-                <td th:text="${totalQuantity}">0</td>
+                <td colspan="4" class="text-end">Итого:</td >
+                <td th:id="total-qty">0</td>
                 <td></td>
                 <td th:id="total-base">0</td>
                 <td></td>
@@ -66,7 +91,65 @@
             </tfoot>
         </table>
     </div>
+
+    <div class="text-center mt-3">
+        <a href="/cart/excel" class="btn btn-outline-primary">📊 Скачать смету (Excel)</a>
+    </div>
+
+
+    <div class="d-flex justify-content-between mt-5 flex-wrap gap-2">
+        <a th:href="@{/filter/results(
+        brandId=${filterParams['brandId']},
+        groupId=${filterParams['groupId']},
+        subGroupId=${filterParams['subGroupId']},
+        param1=${filterParams['param1']},
+        param2=${filterParams['param2']},
+        param3=${filterParams['param3']},
+        param4=${filterParams['param4']},
+        param5=${filterParams['param5']}
+    )}" class="btn btn-secondary">← Назад к фильтру</a>
+
+        <form th:action="@{/cart/confirm}" method="post">
+            <button type="submit" class="btn btn-success">✅ Создать КП</button>
+        </form>
+    </div>
+
 </div>
+
+<div class="mt-4 pt-3 border-top">
+    <form action="/cart/upload-estimate" method="post" enctype="multipart/form-data">
+        <label for="file" class="form-label fw-bold">📥 Загрузить смету (Excel):</label>
+        <div class="input-group">
+            <input type="file" id="file" name="file" accept=".xlsx" class="form-control" required>
+            <button type="submit" class="btn btn-outline-primary">Загрузить</button>
+        </div>
+    </form>
+</div>
+
+<div class="modal fade" id="saveProjectModal" tabindex="-1" aria-labelledby="saveProjectModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <form th:action="@{/cart/save-estimate}" method="post">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="saveProjectModalLabel">Сохранить проект</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="projectName" class="form-label">Название проекта</label>
+                        <input type="text" class="form-control" id="projectName" name="projectName" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
@@ -105,29 +188,69 @@
     function recalculateAll() {
         let totalBase = 0;
         let totalFinal = 0;
+        let totalQty = 0;
 
         document.querySelectorAll('input[id^="counter-"]').forEach(counterInput => {
             const productId = counterInput.id.split('-')[1];
-            const qty = parseFloat(document.getElementById('counter-' + productId)?.value || 1);
-            const base = parseFloat(document.getElementById('base-sum-' + productId)?.innerText.replace(',', '.') || 0);
+            const qty = parseFloat(counterInput.value) || 1;
+            totalQty += qty;
+
+            const basePriceText = document.getElementById('base-price-' + productId)?.innerText || '0';
+            const basePrice = parseFloat(basePriceText.replace(/\s/g, '').replace(',', '.')) || 0;
+
             const coeff = parseFloat(document.getElementById('coefficient-' + productId)?.value || 1);
 
-            const unitPrice = (base / qty) * coeff;
+            const baseSum = basePrice * qty;
+            const unitPrice = basePrice * coeff;
             const total = unitPrice * qty;
-            const margin = total - base;
+            const margin = total - baseSum;
 
-            document.getElementById('unit-price-' + productId).innerText = unitPrice.toFixed(1);
-            document.getElementById('total-sum-' + productId).innerText = total.toFixed(1);
-            document.getElementById('margin-' + productId).innerText = margin.toFixed(1);
+            document.getElementById('base-sum-' + productId).innerText = formatNumber(baseSum);
+            document.getElementById('unit-price-' + productId).innerText = formatNumber(unitPrice);
+            document.getElementById('total-sum-' + productId).innerText = formatNumber(total);
+            document.getElementById('margin-' + productId).innerText = formatNumber(margin);
 
-            totalBase += base;
+            totalBase += baseSum;
             totalFinal += total;
         });
 
         document.getElementById('total-base').innerText = totalBase.toFixed(1);
         document.getElementById('total-final').innerText = totalFinal.toFixed(1);
         document.getElementById('total-margin').innerText = (totalFinal - totalBase).toFixed(1);
+        document.getElementById('total-qty').innerText = totalQty;
     }
+
+
+    function formatNumber(value) {
+        return value.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    }
+
+    function clearCart() {
+        fetch('/cart/clear', { method: 'POST' })
+            .then(() => {
+                location.reload(); // обновим страницу после очистки
+            });
+    }
+
+    function applyGlobalCoefficient() {
+        const globalCoeff = parseFloat(document.getElementById('global-coefficient').value);
+        if (isNaN(globalCoeff) || globalCoeff <= 0) return;
+
+        document.querySelectorAll('input[id^="coefficient-"]').forEach(input => {
+            const productId = input.id.split('-')[1];
+            input.value = globalCoeff;
+
+            fetch('/cart/coefficient', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'productId=' + productId + '&coefficient=' + globalCoeff
+            });
+        });
+
+        recalculateAll();
+    }
+
+
 </script>
 </body>
 </html>

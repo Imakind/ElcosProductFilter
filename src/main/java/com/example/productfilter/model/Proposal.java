@@ -3,6 +3,7 @@ package com.example.productfilter.model;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -21,6 +22,20 @@ public class Proposal {
 
     @OneToMany(mappedBy = "proposal", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ProposalItem> items = new ArrayList<>();
+
+    private String sessionId;
+    private String clientName;
+
+
+    public String getSessionId() {
+        return sessionId;
+    }
+
+
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
+    }
+
 
     public List<ProposalItem> getItems() {
         return items;
@@ -78,5 +93,9 @@ public class Proposal {
         this.timestamp = timestamp;
     }
 
-    // геттеры и сеттеры
+    public String getFormattedTimestamp() {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
+        return this.timestamp.format(formatter);
+    }
+
 }
