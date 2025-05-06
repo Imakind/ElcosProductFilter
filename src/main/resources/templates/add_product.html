@@ -8,19 +8,30 @@
 <body class="p-4">
 <div class="container">
     <h2>Добавить новый товар</h2>
-    <a th:href="@{/filter/results(
-    brandId=${filterParams['brandId']},
-    groupId=${filterParams['groupId']},
-    subGroupId=${filterParams['subGroupId']},
-    param1=${filterParams['param1']},
-    param2=${filterParams['param2']},
-    param3=${filterParams['param3']},
-    param4=${filterParams['param4']},
-    param5=${filterParams['param5']}
-)}"
+    <!-- Если filterParams != null -->
+    <a th:if="${filterParams != null}"
+       th:href="@{/filter/results(
+       brandId=${filterParams['brandId']},
+       groupId=${filterParams['groupId']},
+       subGroupId=${filterParams['subGroupId']},
+       param1=${filterParams['param1']},
+       param2=${filterParams['param2']},
+       param3=${filterParams['param3']},
+       param4=${filterParams['param4']},
+       param5=${filterParams['param5']}
+   )}"
        class="btn btn-secondary mb-3">
         ← Вернуться к фильтру
     </a>
+
+    <!-- Если filterParams == null -->
+    <a th:unless="${filterParams != null}"
+       th:href="@{/filter/results}"
+       class="btn btn-secondary mb-3">
+        ← Вернуться к фильтру
+    </a>
+
+
 
     <form th:action="@{/admin/add-product}" method="post">
     <div class="mb-3">
@@ -67,7 +78,7 @@
                    name="param1"
                    class="form-control"
                    list="param1Options"
-                   th:value="${filterParams['param1']}"
+                   th:value="${filterParams != null ? filterParams['param1'] : ''}"
             placeholder="Выберите или введите новое значение">
 
             <datalist id="param1Options">

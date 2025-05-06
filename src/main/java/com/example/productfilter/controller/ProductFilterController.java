@@ -9,6 +9,7 @@
     import com.lowagie.text.pdf.PdfPCell;
     import org.apache.poi.ss.usermodel.Cell;
     import org.apache.poi.ss.usermodel.Row;
+    import org.apache.poi.ss.util.CellRangeAddress;
     import org.springframework.core.io.Resource;
     import jakarta.servlet.http.HttpServletRequest;
     import jakarta.servlet.http.HttpServletResponse;
@@ -670,6 +671,16 @@
             return "redirect:/";
         }
 
+        @GetMapping("/admin/add-product")
+        public String showAddProductForm(Model model) {
+            model.addAttribute("brands", brandRepo.findAll());
+            model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
+            model.addAttribute("subGroups", List.of());
+            model.addAttribute("productForm", new ProductForm());
+            return "add_product";
+        }
+
+
 
 
         @PostMapping("/cart/update")
@@ -791,70 +802,62 @@
             Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("proposalCoefficients");
 
             if (cart == null || products == null || cart.isEmpty()) {
-                response.sendRedirect("/proposal");
+                response.sendRedirect("/cart");
                 return;
             }
 
             if (coefficientMap == null) coefficientMap = new HashMap<>();
 
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-            response.setHeader("Content-Disposition", "attachment; filename=kp.xlsx");
+            response.setHeader("Content-Disposition", "attachment; filename=proposal.xlsx");
 
             try (Workbook workbook = new XSSFWorkbook(); OutputStream out = response.getOutputStream()) {
                 Sheet sheet = workbook.createSheet("Коммерческое предложение");
+                sheet.setDefaultColumnWidth(20);
 
-                // Создаём стиль для чисел с пробелами (Excel интерпретирует их как , в русской локали)
-                CellStyle priceStyle = workbook.createCellStyle();
-                DataFormat format = workbook.createDataFormat();
-                priceStyle.setDataFormat(format.getFormat("#,##0.00"));
+
+                CellStyle cellStyle = workbook.createCellStyle();
+                cellStyle.setAlignment(HorizontalAlignment.CENTER);
 
                 // Заголовки
                 Row header = sheet.createRow(0);
-                String[] columns = {"№", "Наименование", "Бренд", "Кол-во", "Базовая цена", "Коэф.", "Цена с коэф.", "Сумма"};
+                String[] columns = {"№", "Наименование", "Артикул", "Бренд", "Кол-во", "Цена", "Сумма"};
                 for (int i = 0; i < columns.length; i++) {
-                    header.createCell(i).setCellValue(columns[i]);
+                    Cell cell = header.createCell(i);
+                    cell.setCellValue(columns[i]);
                 }
 
                 int rowIdx = 1;
-                double total = 0.0;
+                int index = 1;
+                int totalQty = 0;
+                double totalSum = 0.0;
 
-                for (int i = 0; i < products.size(); i++) {
-                    Product product = products.get(i);
+                for (Product product : products) {
                     int qty = cart.getOrDefault(product.getProductId(), 1);
                     double basePrice = product.getPrice() != null ? product.getPrice() : 0.0;
                     double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
-                    double priceWithCoeff = basePrice * coeff;
-                    double sum = priceWithCoeff * qty;
+                    double finalPrice = basePrice * coeff;
+                    double sum = finalPrice * qty;
 
                     Row row = sheet.createRow(rowIdx++);
-                    row.createCell(0).setCellValue(i + 1);
+                    row.createCell(0).setCellValue(index++);
                     row.createCell(1).setCellValue(product.getName());
-                    row.createCell(2).setCellValue(product.getBrand().getBrandName());
-                    row.createCell(3).setCellValue(qty);
+                    row.createCell(2).setCellValue(product.getArticleCode());
+                    row.createCell(3).setCellValue(product.getBrand().getBrandName());
+                    row.createCell(4).setCellValue(qty);
+                    row.createCell(5).setCellValue(finalPrice);
+                    row.createCell(6).setCellValue(sum);
 
-                    Cell basePriceCell = row.createCell(4);
-                    basePriceCell.setCellValue(basePrice);
-                    basePriceCell.setCellStyle(priceStyle);
-
-                    row.createCell(5).setCellValue(coeff);
-
-                    Cell coeffPriceCell = row.createCell(6);
-                    coeffPriceCell.setCellValue(priceWithCoeff);
-                    coeffPriceCell.setCellStyle(priceStyle);
-
-                    Cell sumCell = row.createCell(7);
-                    sumCell.setCellValue(sum);
-                    sumCell.setCellStyle(priceStyle);
-
-                    total += sum;
+                    totalQty += qty;
+                    totalSum += sum;
                 }
 
-                // Итоговая строка
+                // Итого
                 Row totalRow = sheet.createRow(rowIdx);
-                totalRow.createCell(6).setCellValue("Итого:");
-                Cell totalCell = totalRow.createCell(7);
-                totalCell.setCellValue(total);
-                totalCell.setCellStyle(priceStyle);
+                totalRow.createCell(0).setCellValue("Итого:");
+                sheet.addMergedRegion(new CellRangeAddress(rowIdx, rowIdx, 0, 3));
+                totalRow.createCell(4).setCellValue(totalQty);
+                totalRow.createCell(6).setCellValue(totalSum);
 
                 workbook.write(out);
             }
