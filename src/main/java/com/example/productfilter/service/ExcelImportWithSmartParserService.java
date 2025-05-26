@@ -70,8 +70,20 @@ public class ExcelImportWithSmartParserService {
                         });
 
                 // === Найти или создать товар
-                Optional<Product> existingOpt = productRepository.findByArticleCode(article);
-                Product product = existingOpt.orElseGet(Product::new);
+                Optional<Product> existingOpt = productRepository.findByArticleCodeAndSupplier_SupplierId(article, supplier.getSupplierId());
+                Product product = existingOpt.orElse(new Product());
+
+                if (existingOpt.isPresent()) {
+                    Product existingProduct = existingOpt.get();
+                    if (existingProduct.getSupplier() != null &&
+                            !existingProduct.getSupplier().getSupplierId().equals(supplier.getSupplierId())) {
+                        continue;
+                    }
+                    product = existingProduct;
+                } else {
+                    product = new Product();
+                }
+
 
                 product.setArticleCode(article);
                 product.setName(name);

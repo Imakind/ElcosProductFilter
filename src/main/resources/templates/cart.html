@@ -57,7 +57,7 @@
                 <td th:text="${product.articleCode}">Код</td>
                 <td th:text="${product.brand.brandName}">Бренд</td>
                 <td>
-                    <input type="number" min="1" class="form-control form-control-sm text-center"
+                    <input type="number" min="0" class="form-control form-control-sm text-center"
                            th:id="'counter-' + ${product.productId}"
                            th:value="${quantities[product.productId]}"
                            onchange="manualQuantityChange(this)">
@@ -159,8 +159,18 @@
 
     function manualQuantityChange(input) {
         const productId = input.id.split('-')[1];
-        const qty = parseFloat(input.value);
-        if (qty > 0) {
+        const qty = parseInt(input.value);
+
+        if (isNaN(qty) || qty <= 0) {
+            fetch('/cart/remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'productId=' + productId
+            }).then(() => {
+                input.closest('tr').remove(); // удалим строку из таблицы
+                recalculateAll();
+            });
+        } else {
             fetch('/cart/update', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -168,6 +178,7 @@
             }).then(() => recalculateAll());
         }
     }
+
 
     function coefficientInputChanged(input) {
         const productId = input.id.split('-')[1];

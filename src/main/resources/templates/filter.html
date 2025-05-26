@@ -364,6 +364,9 @@
                             <span th:text="${prod.name}">Название товара</span>
                         </h5>
                         <small th:text="'Бренд: ' + ${prod.brand.brandName}"></small><br>
+                        <small th:if="${prod.supplier != null}" th:text="'Поставщик: ' + ${prod.supplier.name}"></small><br>
+                        <small th:if="${prod.importedAt != null}"
+                               th:text="'Загружено: ' + ${#temporals.format(prod.importedAt, 'dd.MM.yyyy HH:mm')}"></small><br>
                         <small class="text-danger" th:if="${prod.price != null}"
                                th:text="'Цена: ' + ${#strings.replace(#numbers.formatDecimal(prod.price, 1, 'COMMA', 1, 'POINT'), ',', ' ')} + ' ₸'"></small>
                         <small class="text-danger" th:if="${prod.price == null}" th:text="'Цена: Не указана'"></small>

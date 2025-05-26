@@ -13,5 +13,6 @@ public interface ProductRepository extends JpaRepository<Product, Integer> {
     Page<Product> findAllByProductIdIn(Collection<Integer> productIds, Pageable pageable);
     boolean existsByArticleCode(String articleCode);
     Optional<Product> findByArticleCode(String articleCode);
+    Optional<Product> findByArticleCodeAndSupplier_SupplierId(String articleCode, Integer supplierId);
 
 }
