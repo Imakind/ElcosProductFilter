@@ -22,5 +22,7 @@ public interface CategoryRepository extends JpaRepository<Category, Integer> {
 
     @Query("SELECT c FROM Category c WHERE c.parentCategoryId IS NOT NULL")
     List<Category> findAllSubGroups();
+    Optional<Category> findByNameIgnoreCase(String name);
+
 
 }

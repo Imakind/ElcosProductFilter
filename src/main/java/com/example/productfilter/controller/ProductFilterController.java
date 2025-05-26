@@ -52,6 +52,9 @@
     import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
     import org.springframework.web.multipart.MultipartFile;
+    import com.example.productfilter.service.ExcelImportWithSmartParserService;
+
+
 
 
     @Controller
@@ -67,9 +70,16 @@
         private ProposalRepository proposalRepo;
         private final ProposalService proposalService;
 
-        public ProductFilterController(ProposalService proposalService) {
+        private final ExcelImportWithSmartParserService excelImportWithSmartParserService;
+
+        public ProductFilterController(
+                ProposalService proposalService,
+                ExcelImportWithSmartParserService excelImportWithSmartParserService
+        ) {
             this.proposalService = proposalService;
+            this.excelImportWithSmartParserService = excelImportWithSmartParserService;
         }
+
 
         @GetMapping("/")
         public String index(Model model, HttpSession session) {
@@ -1101,6 +1111,16 @@
         }
 
 
+        @PostMapping("/admin/import-excel")
+        public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes redirectAttributes) {
+            try {
+                excelImportWithSmartParserService.importFromExcel(file);
+                redirectAttributes.addFlashAttribute("message", "Файл успешно загружен и обработан.");
+            } catch (Exception e) {
+                redirectAttributes.addFlashAttribute("error", "Ошибка при загрузке файла: " + e.getMessage());
+            }
+            return "redirect:/admin/add-product";
+        }
 
 
     }

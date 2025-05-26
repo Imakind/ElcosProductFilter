@@ -31,6 +31,13 @@
         ← Вернуться к фильтру
     </a>
 
+    <form action="/admin/import-excel" method="post" enctype="multipart/form-data" class="mb-4">
+        <label for="excelFile" class="form-label fw-bold">📥 Импортировать товары из Excel:</label>
+        <div class="input-group">
+            <input type="file" class="form-control" id="excelFile" name="file" accept=".xlsx" required>
+            <button type="submit" class="btn btn-outline-primary">Загрузить</button>
+        </div>
+    </form>
 
 
     <form th:action="@{/admin/add-product}" method="post">

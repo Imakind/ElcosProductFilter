@@ -2,6 +2,8 @@ package com.example.productfilter.model;
 
 import jakarta.persistence.*;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name="products")
 public class Product {
@@ -20,6 +22,28 @@ public class Product {
 
     @Column(name = "article_code", nullable = false)
     private String articleCode;
+
+    @ManyToOne
+    @JoinColumn(name = "supplier_id")
+    private Supplier supplier;
+    private LocalDateTime importedAt;
+
+    public LocalDateTime getImportedAt() {
+        return importedAt;
+    }
+
+    public void setImportedAt(LocalDateTime importedAt) {
+        this.importedAt = importedAt;
+    }
+
+    public Supplier getSupplier() {
+        return supplier;
+    }
+
+    public void setSupplier(Supplier supplier) {
+        this.supplier = supplier;
+    }
+
 
     // И геттер-сеттер
     public String getArticleCode() {
