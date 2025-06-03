@@ -13,6 +13,13 @@ public class Supplier {
     @Column(nullable = false, unique = true)
     private String name;
 
+    public Supplier() {
+    }
+
+    public Supplier(String name) {
+        this.name = name;
+    }
+
     // Геттеры и сеттеры
     public Integer getSupplierId() {
         return supplierId;

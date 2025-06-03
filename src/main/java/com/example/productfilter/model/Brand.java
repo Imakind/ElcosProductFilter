@@ -9,6 +9,13 @@ public class Brand {
 
     private String brandName;
 
+    public Brand() {
+    }
+
+    public Brand(String brandName) {
+        this.brandName = brandName;
+    }
+
     public Integer getBrandId() {
         return brandId;
     }

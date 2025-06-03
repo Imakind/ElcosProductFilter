@@ -10,7 +10,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
 import java.time.LocalDateTime;
-import java.util.Optional;
+import java.time.format.DateTimeFormatter;
 
 @Service
 public class ExcelImportWithSmartParserService {
@@ -50,40 +50,36 @@ public class ExcelImportWithSmartParserService {
                 String supplierName = getString(row, 4);
                 String groupName = getString(row, 5);
                 String subGroupName = getString(row, 6);
+                String importPriceDate = null;
+                Cell importDateCell = row.getCell(7);
+                if (importDateCell != null && importDateCell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(importDateCell)) {
+                    importPriceDate = importDateCell.getLocalDateTimeCellValue().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"));
+                } else if (importDateCell != null && importDateCell.getCellType() == CellType.STRING) {
+                    importPriceDate = importDateCell.getStringCellValue().trim();
+                }
+
 
                 if (article == null || name == null || name.isBlank()) continue;
 
                 // === Бренд
-                Brand brand = brandRepository.findByBrandNameIgnoreCase(brandName)
-                        .orElseGet(() -> {
-                            Brand b = new Brand();
-                            b.setBrandName(brandName);
-                            return brandRepository.save(b);
-                        });
-
-                // === Поставщик
-                Supplier supplier = supplierRepository.findByNameIgnoreCase(supplierName)
-                        .orElseGet(() -> {
-                            Supplier s = new Supplier();
-                            s.setName(supplierName);
-                            return supplierRepository.save(s);
-                        });
-
-                // === Найти или создать товар
-                Optional<Product> existingOpt = productRepository.findByArticleCodeAndSupplier_SupplierId(article, supplier.getSupplierId());
-                Product product = existingOpt.orElse(new Product());
-
-                if (existingOpt.isPresent()) {
-                    Product existingProduct = existingOpt.get();
-                    if (existingProduct.getSupplier() != null &&
-                            !existingProduct.getSupplier().getSupplierId().equals(supplier.getSupplierId())) {
-                        continue;
-                    }
-                    product = existingProduct;
-                } else {
-                    product = new Product();
+                Brand brand = null;
+                if (brandName != null && !brandName.isBlank()) {
+                    brand = brandRepository.findByBrandNameIgnoreCase(brandName)
+                            .orElseGet(() -> brandRepository.save(new Brand(brandName)));
                 }
 
+                // === Поставщик
+                Supplier supplier = null;
+                if (supplierName != null && !supplierName.isBlank()) {
+                    supplier = supplierRepository.findByNameIgnoreCase(supplierName)
+                            .orElseGet(() -> supplierRepository.save(new Supplier(supplierName)));
+                }
+
+                if (supplier == null) continue; // Без поставщика — не импортируем
+
+                // === Найти или создать товар
+                Product product = productRepository.findByArticleCodeAndSupplier_SupplierId(article, supplier.getSupplierId())
+                        .orElse(new Product());
 
                 product.setArticleCode(article);
                 product.setName(name);
@@ -92,12 +88,18 @@ public class ExcelImportWithSmartParserService {
                 product.setSupplier(supplier);
                 product.setImportedAt(LocalDateTime.now());
 
+                // === Устанавливаем importPriceDate как строку (формат из Excel, например "17.04.2025")
+                if (importPriceDate != null && !importPriceDate.isBlank()) {
+                    product.setImportPriceDate(importPriceDate.trim());
+                } else {
+                    product.setImportPriceDate(null);
+                }
+
                 product = productRepository.save(product);
 
-                // === Очистить старые параметры
+                // === Очистить и записать параметры
                 parameterRepository.deleteByProduct_ProductId(product.getProductId());
 
-                // === Записать новые
                 ParsedParams parsed = SmartProductParser.parse(name);
                 ProductParameters param = new ProductParameters();
                 param.setProduct(product);
@@ -112,38 +114,44 @@ public class ExcelImportWithSmartParserService {
                 Category group = null;
                 Integer groupId = null;
 
+                // === ГРУППА
                 if (groupName != null && !groupName.isBlank()) {
-                    group = categoryRepository.findByNameIgnoreCase(groupName)
+                    group = categoryRepository.findByNameIgnoreCase(groupName.trim())
                             .orElseGet(() -> {
                                 Category c = new Category();
-                                c.setName(groupName);
+                                c.setName(groupName.trim());
                                 return categoryRepository.save(c);
                             });
 
                     groupId = group.getCategoryId();
 
-                    // Связь с группой
-                    ProductCategories pc = new ProductCategories();
-                    pc.setProductId(product.getProductId());
-                    pc.setCategoryId(groupId);
-                    productCategoriesRepository.save(pc);
+                    if (!productCategoriesRepository.existsByProductIdAndCategoryId(product.getProductId(), groupId)) {
+                        ProductCategories pc = new ProductCategories();
+                        pc.setProductId(product.getProductId());
+                        pc.setCategoryId(groupId);
+                        productCategoriesRepository.save(pc);
+                    }
                 }
 
+                // === ПОДГРУППА
                 if (subGroupName != null && !subGroupName.isBlank()) {
-                    Integer finalGroupId = groupId;  // теперь можно использовать в лямбде
-                    Category subGroup = categoryRepository.findByNameIgnoreCase(subGroupName)
+                    Integer finalGroupId = groupId;
+                    Category subGroup = categoryRepository.findByNameIgnoreCase(subGroupName.trim())
                             .orElseGet(() -> {
                                 Category c = new Category();
-                                c.setName(subGroupName);
-                                if (finalGroupId != null) c.setParentCategoryId(finalGroupId);
+                                c.setName(subGroupName.trim());
+                                if (finalGroupId != null) {
+                                    c.setParentCategoryId(finalGroupId);
+                                }
                                 return categoryRepository.save(c);
                             });
 
-                    // Связь с подгруппой
-                    ProductCategories pc = new ProductCategories();
-                    pc.setProductId(product.getProductId());
-                    pc.setCategoryId(subGroup.getCategoryId());
-                    productCategoriesRepository.save(pc);
+                    if (!productCategoriesRepository.existsByProductIdAndCategoryId(product.getProductId(), subGroup.getCategoryId())) {
+                        ProductCategories pc = new ProductCategories();
+                        pc.setProductId(product.getProductId());
+                        pc.setCategoryId(subGroup.getCategoryId());
+                        productCategoriesRepository.save(pc);
+                    }
                 }
             }
         }
@@ -154,18 +162,28 @@ public class ExcelImportWithSmartParserService {
         if (cell == null) return null;
         return switch (cell.getCellType()) {
             case STRING -> cell.getStringCellValue().trim();
-            case NUMERIC -> String.valueOf((int) cell.getNumericCellValue());
+            case NUMERIC -> {
+                double d = cell.getNumericCellValue();
+                yield d == Math.floor(d) ? String.valueOf((int) d) : String.valueOf(d);
+            }
+            case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
             default -> null;
         };
     }
 
     private Double getDouble(Row row, int col) {
-        try {
-            Cell cell = row.getCell(col);
-            if (cell == null || cell.getCellType() != CellType.NUMERIC) return null;
-            return cell.getNumericCellValue();
-        } catch (Exception e) {
-            return null;
-        }
+        Cell cell = row.getCell(col);
+        if (cell == null) return null;
+        return switch (cell.getCellType()) {
+            case NUMERIC -> cell.getNumericCellValue();
+            case STRING -> {
+                try {
+                    yield Double.parseDouble(cell.getStringCellValue().trim());
+                } catch (NumberFormatException e) {
+                    yield null;
+                }
+            }
+            default -> null;
+        };
     }
 }

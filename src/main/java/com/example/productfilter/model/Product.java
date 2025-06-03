@@ -28,6 +28,18 @@ public class Product {
     private Supplier supplier;
     private LocalDateTime importedAt;
 
+    @Column(name = "import_price_date")
+    private String importPriceDate; //dd:mm:yyyy
+
+    // + геттер и сеттер
+    public String getImportPriceDate() {
+        return importPriceDate;
+    }
+
+    public void setImportPriceDate(String importPriceDate) {
+        this.importPriceDate = importPriceDate;
+    }
+
     public LocalDateTime getImportedAt() {
         return importedAt;
     }

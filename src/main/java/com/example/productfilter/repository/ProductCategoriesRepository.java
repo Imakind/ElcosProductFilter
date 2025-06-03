@@ -18,4 +18,5 @@ public interface ProductCategoriesRepository extends JpaRepository<ProductCatego
 
     void deleteByProductId(Integer productId);
 
+    boolean existsByProductIdAndCategoryId(Integer productId, Integer categoryId);
 }
