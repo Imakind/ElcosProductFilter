@@ -7,11 +7,13 @@ import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.*;
 
 @Service
 public class ExcelImportWithSmartParserService {
@@ -38,10 +40,24 @@ public class ExcelImportWithSmartParserService {
     }
 
     @Transactional
-    public void importFromExcel(MultipartFile file) throws Exception {
-        try (InputStream is = file.getInputStream(); Workbook workbook = new XSSFWorkbook(is)) {
+    public void importFromExcel(File file) throws Exception {
+        try (InputStream is = new FileInputStream(file); Workbook workbook = new XSSFWorkbook(is)) {
             Sheet sheet = workbook.getSheetAt(0);
-            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+
+            // Кэши
+            Map<String, Brand> brandCache = new HashMap<>();
+            Map<String, Supplier> supplierCache = new HashMap<>();
+            Map<String, Category> categoryCache = new HashMap<>();
+
+            int totalRows = sheet.getLastRowNum();
+            int importedCount = 0;
+            int updatedCount = 0;
+            int createdBrands = 0;
+            int createdSuppliers = 0;
+
+            System.out.println("📥 Импорт начат. Всего строк: " + totalRows);
+
+            for (int i = 1; i <= totalRows; i++) {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
 
@@ -52,6 +68,7 @@ public class ExcelImportWithSmartParserService {
                 String supplierName = getString(row, 4);
                 String groupName = getString(row, 5);
                 String subGroupName = getString(row, 6);
+
                 String importPriceDate = null;
                 Cell importDateCell = row.getCell(7);
                 if (importDateCell != null && importDateCell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(importDateCell)) {
@@ -60,28 +77,49 @@ public class ExcelImportWithSmartParserService {
                     importPriceDate = importDateCell.getStringCellValue().trim();
                 }
 
-
                 if (article == null || name == null || name.isBlank()) continue;
 
                 // === Бренд
                 Brand brand = null;
                 if (brandName != null && !brandName.isBlank()) {
-                    brand = brandRepository.findByBrandNameIgnoreCase(brandName)
-                            .orElseGet(() -> brandRepository.save(new Brand(brandName)));
+                    brand = brandCache.get(brandName.toLowerCase());
+                    if (brand == null) {
+                        brand = brandRepository.findByBrandNameIgnoreCase(brandName).orElse(null);
+                        if (brand == null) {
+                            brand = new Brand(brandName);
+                            brand = brandRepository.save(brand);
+                            createdBrands++;
+                        }
+                        brandCache.put(brandName.toLowerCase(), brand);
+                    }
                 }
 
                 // === Поставщик
                 Supplier supplier = null;
                 if (supplierName != null && !supplierName.isBlank()) {
-                    supplier = supplierRepository.findByNameIgnoreCase(supplierName)
-                            .orElseGet(() -> supplierRepository.save(new Supplier(supplierName)));
+                    supplier = supplierCache.get(supplierName.toLowerCase());
+                    if (supplier == null) {
+                        supplier = supplierRepository.findByNameIgnoreCase(supplierName).orElse(null);
+                        if (supplier == null) {
+                            supplier = new Supplier(supplierName);
+                            supplier = supplierRepository.save(supplier);
+                            createdSuppliers++;
+                        }
+                        supplierCache.put(supplierName.toLowerCase(), supplier);
+                    }
                 }
 
-                if (supplier == null) continue; // Без поставщика — не импортируем
+                if (supplier == null) continue;
 
-                // === Найти или создать товар
+                // === Товар
                 Product product = productRepository.findByArticleCodeAndSupplier_SupplierId(article, supplier.getSupplierId())
-                        .orElse(new Product());
+                        .orElse(null);
+
+                boolean isNew = false;
+                if (product == null) {
+                    product = new Product();
+                    isNew = true;
+                }
 
                 product.setArticleCode(article);
                 product.setName(name);
@@ -89,17 +127,12 @@ public class ExcelImportWithSmartParserService {
                 product.setBrand(brand);
                 product.setSupplier(supplier);
                 product.setImportedAt(LocalDateTime.now());
-
-                // === Устанавливаем importPriceDate как строку (формат из Excel, например "17.04.2025")
-                if (importPriceDate != null && !importPriceDate.isBlank()) {
-                    product.setImportPriceDate(importPriceDate.trim());
-                } else {
-                    product.setImportPriceDate(null);
-                }
+                product.setImportPriceDate(importPriceDate != null ? importPriceDate.trim() : null);
 
                 product = productRepository.save(product);
+                if (isNew) importedCount++; else updatedCount++;
 
-                // === Очистить и записать параметры
+                // === Параметры
                 parameterRepository.deleteByProduct_ProductId(product.getProductId());
 
                 ParsedParams parsed = SmartProductParser.parse(name);
@@ -112,19 +145,12 @@ public class ExcelImportWithSmartParserService {
                 param.setParam5(parsed.param5);
                 parameterRepository.save(param);
 
-                // === Категории (группа и подгруппа)
+                // === Категории
                 Category group = null;
                 Integer groupId = null;
 
-                // === ГРУППА
                 if (groupName != null && !groupName.isBlank()) {
-                    group = categoryRepository.findByNameIgnoreCase(groupName.trim())
-                            .orElseGet(() -> {
-                                Category c = new Category();
-                                c.setName(groupName.trim());
-                                return categoryRepository.save(c);
-                            });
-
+                    group = getOrCreateCategory(groupName.trim(), null, categoryCache);
                     groupId = group.getCategoryId();
 
                     if (!productCategoriesRepository.existsByProductIdAndCategoryId(product.getProductId(), groupId)) {
@@ -135,19 +161,8 @@ public class ExcelImportWithSmartParserService {
                     }
                 }
 
-                // === ПОДГРУППА
                 if (subGroupName != null && !subGroupName.isBlank()) {
-                    Integer finalGroupId = groupId;
-                    Category subGroup = categoryRepository.findByNameIgnoreCase(subGroupName.trim())
-                            .orElseGet(() -> {
-                                Category c = new Category();
-                                c.setName(subGroupName.trim());
-                                if (finalGroupId != null) {
-                                    c.setParentCategoryId(finalGroupId);
-                                }
-                                return categoryRepository.save(c);
-                            });
-
+                    Category subGroup = getOrCreateCategory(subGroupName.trim(), groupId, categoryCache);
                     if (!productCategoriesRepository.existsByProductIdAndCategoryId(product.getProductId(), subGroup.getCategoryId())) {
                         ProductCategories pc = new ProductCategories();
                         pc.setProductId(product.getProductId());
@@ -155,8 +170,33 @@ public class ExcelImportWithSmartParserService {
                         productCategoriesRepository.save(pc);
                     }
                 }
+
+                if (i % 100 == 0) {
+                    System.out.println("✔ Обработано " + i + " / " + totalRows);
+                }
             }
+
+            System.out.println("✅ Импорт завершён:");
+            System.out.println("    Новых товаров: " + importedCount);
+            System.out.println("    Обновлено товаров: " + updatedCount);
+            System.out.println("    Новых брендов: " + createdBrands);
+            System.out.println("    Новых поставщиков: " + createdSuppliers);
         }
+    }
+
+    private Category getOrCreateCategory(String name, Integer parentId, Map<String, Category> cache) {
+        String key = name.toLowerCase();
+        if (cache.containsKey(key)) return cache.get(key);
+
+        Category cat = categoryRepository.findByNameIgnoreCase(name).orElse(null);
+        if (cat == null) {
+            cat = new Category();
+            cat.setName(name);
+            cat.setParentCategoryId(parentId);
+            cat = categoryRepository.save(cat);
+        }
+        cache.put(key, cat);
+        return cat;
     }
 
     private String getString(Row row, int col) {
