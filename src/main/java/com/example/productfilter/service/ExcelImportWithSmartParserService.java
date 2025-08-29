@@ -6,6 +6,7 @@ import com.example.productfilter.service.SmartProductParser.ParsedParams;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
@@ -36,6 +37,7 @@ public class ExcelImportWithSmartParserService {
         this.productCategoriesRepository = productCategoriesRepository;
     }
 
+    @Transactional
     public void importFromExcel(MultipartFile file) throws Exception {
         try (InputStream is = file.getInputStream(); Workbook workbook = new XSSFWorkbook(is)) {
             Sheet sheet = workbook.getSheetAt(0);

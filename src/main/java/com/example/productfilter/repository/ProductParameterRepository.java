@@ -1,10 +1,16 @@
 package com.example.productfilter.repository;
 
-import com.example.productfilter.model.*;
-import org.springframework.data.jpa.repository.*;
-import java.util.*;
+import com.example.productfilter.model.ProductParameters;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Collection;
+import java.util.List;
 
 public interface ProductParameterRepository extends JpaRepository<ProductParameters, Integer> {
+
     @Query("SELECT DISTINCT p.param1 FROM ProductParameters p WHERE p.param1 IS NOT NULL")
     List<String> findDistinctParam1();
 
@@ -22,6 +28,7 @@ public interface ProductParameterRepository extends JpaRepository<ProductParamet
 
     List<ProductParameters> findByProduct_ProductIdIn(Collection<Integer> productIds);
 
-    void deleteByProduct_ProductId(Integer productId);
-
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional // можно убрать, т.к. вызываете из @Transactional сервиса
+    int deleteByProduct_ProductId(Integer productId);
 }
