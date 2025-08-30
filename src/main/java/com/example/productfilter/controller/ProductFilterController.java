@@ -21,6 +21,7 @@
     import org.springframework.http.HttpHeaders;
     import org.springframework.http.MediaType;
     import org.springframework.http.ResponseEntity;
+    import org.springframework.security.access.prepost.PreAuthorize;
     import org.springframework.stereotype.Controller;
     import org.springframework.ui.Model;
     import org.springframework.web.bind.annotation.*;
@@ -54,6 +55,12 @@
     import org.springframework.web.multipart.MultipartFile;
     import com.example.productfilter.service.ExcelImportWithSmartParserService;
 
+    import java.util.regex.Pattern;
+    import java.util.function.Function;
+    import static java.util.stream.Collectors.*;
+
+    import java.util.regex.Pattern;
+    import java.util.regex.Matcher;
 
 
 
@@ -634,6 +641,7 @@
             return cell;
         }
 
+        @PreAuthorize("hasRole('ADMIN')")
         @PostMapping("/admin/add-product")
         public String addProduct(ProductForm productForm, Model model) {
             // Проверяем, существует ли товар с таким же артикулом
@@ -681,6 +689,7 @@
             return "redirect:/";
         }
 
+        @PreAuthorize("hasRole('ADMIN')")
         @GetMapping("/admin/add-product")
         public String showAddProductForm(Model model) {
             model.addAttribute("brands", brandRepo.findAll());
@@ -1110,7 +1119,7 @@
             return "redirect:/cart";
         }
 
-
+        @PreAuthorize("hasRole('ADMIN')")
         @PostMapping("/admin/import-excel")
         public String importExcel(@RequestParam("file") MultipartFile file, RedirectAttributes redirectAttributes) {
             try {
@@ -1122,5 +1131,207 @@
             return "redirect:/admin/add-product";
         }
 
+        // ProductFilterController.java
+        @PostMapping("/cart/remove-selected")
+        @ResponseBody
+        public void removeSelected(@RequestParam("productIds") List<Integer> productIds, HttpSession session) {
+            Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
+            Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
+
+            if (cart == null) return;
+            for (Integer id : productIds) {
+                cart.remove(id);                     // удаляем из корзины полностью
+                if (coefficientMap != null) {
+                    coefficientMap.remove(id);       // и коэффициент, если был
+                }
+            }
+            session.setAttribute("cart", cart);
+            session.setAttribute("coefficientMap", coefficientMap);
+        }
+
+        @RestController
+        @RequestMapping("/filter")
+        public class ParameterLabelsController {
+
+            private final ProductRepository productRepo;
+            private final ProductParameterRepository parameterRepo;
+            private final ProductCategoriesRepository productCategoriesRepo;
+
+            public ParameterLabelsController(ProductRepository productRepo,
+                                             ProductParameterRepository parameterRepo,
+                                             ProductCategoriesRepository productCategoriesRepo) {
+                this.productRepo = productRepo;
+                this.parameterRepo = parameterRepo;
+                this.productCategoriesRepo = productCategoriesRepo;
+            }
+
+            @GetMapping("/parameter-labels")
+            public Map<String, String> getParameterLabels(
+                    @RequestParam(value = "groupId", required = false) Integer groupId,
+                    @RequestParam(value = "subGroupId", required = false) Integer subGroupId
+            ) {
+                // Дефолты
+                Map<String, String> labels = new LinkedHashMap<>();
+                labels.put("param1", "Параметр 1");
+                labels.put("param2", "Параметр 2");
+                labels.put("param3", "Параметр 3");
+                labels.put("param4", "Параметр 4");
+                labels.put("param5", "Параметр 5");
+
+                Integer catId = (subGroupId != null ? subGroupId : groupId);
+                if (catId == null) return labels;
+
+                // Собираем товары выбранной категории
+                List<ProductCategories> links = productCategoriesRepo.findAll();
+                Set<Integer> productIds = links.stream()
+                        .filter(pc -> catId.equals(pc.getCategoryId()))
+                        .map(ProductCategories::getProductId)
+                        .collect(toSet());
+                if (productIds.isEmpty()) return labels;
+
+                // Параметры + карта товаров
+                List<ProductParameters> params = parameterRepo.findByProduct_ProductIdIn(productIds);
+                if (params.isEmpty()) return labels;
+
+                Map<Integer, Product> productMap = productRepo.findAllById(productIds).stream()
+                        .collect(toMap(Product::getProductId, p -> p));
+
+                // Инференс подписей
+                Map<String, String> inferred = ParamLabelInferer.infer(params, productMap);
+
+                inferred.forEach((k, v) -> labels.put(k, v == null ? "" : v));
+                return labels;
+            }
+
+            // ----------------- Внутренний инференсер подписей -----------------
+
+            private static final class ParamLabelInferer {
+                private static final Pattern POLES      = Pattern.compile("^[1-4]\\s*[pр]$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+                private static final Pattern CURRENT_A  = Pattern.compile("^\\d{1,3}\\s*[aа]$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+                private static final Pattern CHAR_BCD   = Pattern.compile("^[bcdBCD]$");
+                private static final Pattern KA_CUTOFF  = Pattern.compile("^\\d{1,2}(?:[\\.,]\\d{1,2})?\\s*(?:k|к)\\s*a$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+                private static final Pattern THICKNESS  = Pattern.compile("^[0-3](?:[\\.,]\\d)$");
+                private static final Pattern NUMBER     = Pattern.compile("^\\d+(?:[\\.,]\\d+)?$");
+                private static final Pattern DIM_KEYWORDS = Pattern.compile("лоток|профиль|труба|переходник|короб", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
+                private static final double COVERAGE_THRESHOLD = 0.30; // порог заполненности слота
+
+                static Map<String, String> infer(List<ProductParameters> params, Map<Integer, Product> products) {
+                    Map<String, String> res = new LinkedHashMap<>();
+                    List<String> p1 = values(params, 1);
+                    List<String> p2 = values(params, 2);
+                    List<String> p3 = values(params, 3);
+                    List<String> p4 = values(params, 4);
+                    List<String> p5 = values(params, 5);
+
+                    int total = params.size();
+                    double cov4 = p4.size() / (double) total;
+                    double cov5 = p5.size() / (double) total;
+
+                    // 1) Раннее решение: это габаритная категория?
+                    boolean looksDims = looksLikeDimsRelaxed(p1, p2, p3) || namesSuggestDimsLoose(products);
+                    if (looksDims) {
+                        // Ставим подписи сразу, не прячем их по порогу
+                        res.put("param1", "Длина");
+                        res.put("param2", "Ширина");
+                        res.put("param3", "Высота");
+                    }
+
+                    // 2) Прятать Д/Ш/В только если вообще нет значений
+                    if (p1.isEmpty()) res.put("param1", "");
+                    if (p2.isEmpty()) res.put("param2", "");
+                    if (p3.isEmpty()) res.put("param3", "");
+
+                    // 3) Для p4/p5 оставляем прежний порог
+                    if (cov4 < COVERAGE_THRESHOLD) res.put("param4", "");
+                    if (cov5 < COVERAGE_THRESHOLD) res.put("param5", "");
+
+                    // 4) Для тех слотов, где подпись ещё не проставлена — классифицируем по паттернам
+                    inferSlot("param1", p1, res);
+                    inferSlot("param2", p2, res);
+                    inferSlot("param3", p3, res);
+                    inferSlot("param4", p4, res);
+                    inferSlot("param5", p5, res);
+
+                    // 5) Нормализуем единицы
+                    if ("Толщина".equals(res.get("param4"))) res.put("param4", "Толщина, мм");
+                    if ("Ток (А)".equals(res.get("param2"))) res.put("param2", "Ток, А");
+                    if ("Отсечка (кА)".equals(res.get("param4"))) res.put("param4", "Отключающая способность, кА");
+
+                    return res;
+                }
+
+                // Более «мягкая» проверка габаритов: 2 из 3 — в основном числа
+                private static boolean looksLikeDimsRelaxed(List<String> p1, List<String> p2, List<String> p3) {
+                    int ok = 0;
+                    if (percentNumeric(p1) > 0.6) ok++;
+                    if (percentNumeric(p2) > 0.6) ok++;
+                    if (percentNumeric(p3) > 0.4) ok++; // третьему даём послабление
+                    return ok >= 2;
+                }
+
+                // Слова-триггеры в названиях — считаем «габаритными», если встречаются хотя бы у ~5% позиций
+                private static boolean namesSuggestDimsLoose(Map<Integer, Product> products) {
+                    if (products.isEmpty()) return false;
+                    long hits = products.values().stream()
+                            .map(p -> Optional.ofNullable(p.getName()).orElse(""))
+                            .filter(n -> DIM_KEYWORDS.matcher(n).find())
+                            .count();
+                    return (hits / (double) products.size()) > 0.05; // было 0.2 — слишком строго
+                }
+
+                private static List<String> values(List<ProductParameters> params, int idx) {
+                    Stream<String> s = params.stream().map(pp -> switch (idx) {
+                        case 1 -> pp.getParam1();
+                        case 2 -> pp.getParam2();
+                        case 3 -> pp.getParam3();
+                        case 4 -> pp.getParam4();
+                        case 5 -> pp.getParam5();
+                        default -> null;
+                    });
+                    return s.filter(Objects::nonNull).map(String::trim).filter(v -> !v.isEmpty()).collect(toList());
+                }
+
+                private static void inferSlot(String key, List<String> values, Map<String, String> out) {
+                    if (out.containsKey(key)) return;
+                    if (values.isEmpty()) { out.put(key, ""); return; }
+
+                    long poles   = values.stream().filter(v -> POLES.matcher(v).matches()).count();
+                    long current = values.stream().filter(v -> CURRENT_A.matcher(v).matches()).count();
+                    long chr     = values.stream().filter(v -> CHAR_BCD.matcher(v).matches()).count();
+                    long ka      = values.stream().filter(v -> KA_CUTOFF.matcher(v).matches()).count();
+                    long thick   = values.stream().filter(v -> THICKNESS.matcher(v).matches()).count();
+                    long nums    = values.stream().filter(v -> NUMBER.matcher(v).matches()).count();
+
+                    long max = Collections.max(Arrays.asList(poles, current, chr, ka, thick, nums));
+                    if (max == 0) { out.put(key, ""); return; }
+                    if (max == poles)   { out.put(key, "Полюсность"); return; }
+                    if (max == current) { out.put(key, "Ток (А)"); return; }
+                    if (max == chr)     { out.put(key, "Характеристика (B/C/D)"); return; }
+                    if (max == ka)      { out.put(key, "Отсечка (кА)"); return; }
+                    if (max == thick)   { out.put(key, "Толщина"); return; }
+                    out.put(key, "Размер");
+                }
+
+                private static boolean looksLikeDims(List<String> p1, List<String> p2, List<String> p3) {
+                    return percentNumeric(p1) > 0.6 && percentNumeric(p2) > 0.6 && percentNumeric(p3) > 0.5;
+                }
+
+                private static double percentNumeric(List<String> vals) {
+                    if (vals.isEmpty()) return 0;
+                    long m = vals.stream().filter(v -> NUMBER.matcher(v).matches()).count();
+                    return m / (double) vals.size();
+                }
+
+                private static boolean namesSuggestDims(Map<Integer, Product> products) {
+                    if (products.isEmpty()) return false;
+                    long hits = products.values().stream()
+                            .map(p -> Optional.ofNullable(p.getName()).orElse(""))
+                            .filter(n -> DIM_KEYWORDS.matcher(n).find())
+                            .count();
+                    return (hits / (double) products.size()) > 0.2;
+                }
+            }
+        }
 
     }

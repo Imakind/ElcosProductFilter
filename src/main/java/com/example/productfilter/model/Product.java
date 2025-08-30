@@ -14,7 +14,7 @@ public class Product {
     private String name;
 
     @ManyToOne
-    @JoinColumn(name = "brand_id")
+    @JoinColumn(name = "brand_id", nullable = false)
     private Brand brand;
 
     @Column(name = "base_price")

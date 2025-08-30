@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="https://www.thymeleaf.org/extras/spring-security">
 <head>
     <meta charset="UTF-8">
     <title>Корзина</title>
@@ -10,8 +11,8 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">Корзина</h2>
         <div class="d-flex flex-wrap gap-2 align-items-center">
-            <button type="button" class="btn btn-outline-danger btn-sm" onclick="clearCart()">🔄 reset</button>
             <button type="button" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#saveProjectModal">💾 Сохранить проект</button>
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeSelected()">🗑 Удалить выбранные</button>
         </div>
     </div>
 
@@ -37,6 +38,9 @@
         <table class="table table-bordered align-middle text-center">
             <thead class="table-light">
             <tr>
+                <th style="width:36px;">
+                    <input type="checkbox" id="select-all" onchange="toggleSelectAll(this)">
+                </th>
                 <th>№</th>
                 <th>Наименование</th>
                 <th>Артикул</th>
@@ -51,7 +55,10 @@
             </tr>
             </thead>
             <tbody>
-            <tr th:each="product, iterStat : ${cartProducts}">
+            <tr th:each="product, iterStat : ${cartProducts}" th:id="'row-' + ${product.productId}">
+                <td>
+                    <input type="checkbox" class="select-product" th:attr="data-product-id=${product.productId}">
+                </td>
                 <td th:text="${iterStat.count}">1</td>
                 <td th:text="${product.name}">Название</td>
                 <td th:text="${product.articleCode}">Код</td>
@@ -257,7 +264,46 @@
         recalculateAll();
     }
 
+    function toggleSelectAll(master) {
+        document.querySelectorAll('.select-product').forEach(cb => cb.checked = master.checked);
+    }
 
+    function getSelectedIds() {
+        return Array.from(document.querySelectorAll('.select-product:checked'))
+            .map(cb => parseInt(cb.dataset.productId));
+    }
+
+    function removeSelected() {
+        const ids = getSelectedIds();
+        if (ids.length === 0) {
+            alert('Выберите товары, которые нужно удалить.');
+            return;
+        }
+
+        const body = new URLSearchParams();
+        ids.forEach(id => body.append('productIds', id));
+
+        fetch('/cart/remove-selected', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+        }).then(() => {
+            // убираем строки из таблицы
+            ids.forEach(id => {
+                const row = document.getElementById('row-' + id);
+                if (row) row.remove();
+            });
+            // пересчитать итоги
+            recalculateAll();
+
+            // снять общий чекбокс
+            const master = document.getElementById('select-all');
+            if (master) master.checked = false;
+        }).catch(err => {
+            console.error('Ошибка при удалении выбранных:', err);
+            alert('Не удалось удалить выбранные позиции');
+        });
+    }
 </script>
 </body>
 </html>
