@@ -1,309 +1,997 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org"
-      xmlns:sec="https://www.thymeleaf.org/extras/spring-security">
+<html lang="ru" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="UTF-8" />
     <title>Корзина</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- безопасно даже при отключённом CSRF -->
+    <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
+    <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+
+    <style>
+        :root { --gap:16px; }
+        body { margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:#0f0f0f; color:#eaeaea; }
+        a, button, input, select { color:inherit; }
+        .page { padding: 20px; max-width: 1280px; margin: 0 auto; }
+        h1 { margin: 0 0 16px; font-size: 22px; }
+
+        .cart-layout { display: grid; grid-template-columns: 320px 1fr; gap: var(--gap); align-items: start; }
+        .panel { border: 1px solid #2a2a2a; border-radius: 12px; padding: 12px; background:#151515; }
+        .panel h3 { margin: 0 0 8px; font-size: 16px; display:flex; align-items:center; gap:8px; }
+
+        .hint { font-size:12px; opacity:.75; }
+        .muted { opacity:.85; }
+
+        .tree ul { list-style: none; padding-left: 16px; margin: 6px 0; }
+        .tree li { margin: 2px 0; }
+        .node-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
+        .node-row:hover { background:#1e1e1e; }
+        .node-row .icon { width: 18px; text-align: center; opacity:.8; }
+        .node-row .label.selected { font-weight:700; text-decoration: underline; }
+
+        .folder-products { margin-top:10px; border-top:1px solid #2a2a2a; padding-top:8px; }
+        .folder-products h4 { font-size:13px; margin:0 0 6px; opacity:.85;}
+        .folder-products ul { list-style:none; padding:0; margin:0; max-height:200px; overflow:auto;}
+        .folder-products li { font-size:12px; padding:3px 0; opacity:.92; }
+        .folder-products li a { text-decoration:none; border-bottom:1px dashed #444; cursor:pointer; }
+        .folder-products .empty { opacity:.6; font-size:12px; }
+
+        .btn { border:1px solid #2a2a2a; background:#202020; border-radius:10px; padding:6px 10px; cursor:pointer; text-decoration:none; display:inline-block; }
+        .btn:hover { background:#262626; }
+        .btn-primary { border-color:#345; background:#1c2430; }
+        .btn-primary:hover { background:#222c3a; }
+        .btn-danger { border-color:#553; background:#2a1a1a; }
+        .btn-danger:hover { background:#311; }
+
+        .summary { display:flex; gap:16px; align-items:center; margin:8px 0 16px; font-size:14px; opacity:.95; flex-wrap:wrap; }
+        .summary .pill { border:1px solid #2a2a2a; border-radius:999px; padding:6px 10px; background:#161616; }
+        .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-left:auto }
+
+        .save-form { display:flex; gap:8px; align-items:center; }
+        .save-form input { background:#1a1a1a; border:1px solid #2a2a2a; border-radius:8px; padding:6px 10px; }
+
+        .subtoolbar { display:flex; gap:8px; margin:10px 0; flex-wrap:wrap; align-items:center; }
+        input[type="text"], input[type="number"], select { background:#1a1a1a; border:1px solid #2a2a2a; border-radius:8px; padding:6px 8px; color:#eaeaea; }
+
+        table.list { width:100%; border-collapse: collapse; }
+        table.list th, table.list td { padding:8px; border-bottom:1px solid #212121; vertical-align: middle; }
+        table.list th { text-align:left; font-weight:600; opacity:.9; position:sticky; top:0; background:#151515; z-index:1; }
+        table.list tr:hover { background:#1a1a1a; }
+        tr[data-draggable="true"] { cursor: grab; }
+        tr[data-draggable="true"]:active { cursor: grabbing; }
+        .price, .sum { white-space:nowrap; text-align:right; }
+        .qty, .coeff { width:92px; }
+        .folder-select { min-width:180px; }
+
+        /* Контекстное меню */
+        .context-menu {
+            position: fixed;
+            z-index: 9999;
+            min-width: 200px;
+            background:#1b1b1b;
+            border:1px solid #2a2a2a;
+            border-radius:10px;
+            padding:6px;
+            box-shadow: 0 8px 24px rgba(0,0,0,.4);
+        }
+        .context-menu .item {
+            padding:8px 10px;
+            border-radius:8px;
+            cursor:pointer;
+            user-select:none;
+            font-size:14px;
+        }
+        .context-menu .item:hover { background:#262626; }
+        .context-menu .item[disabled] { opacity:.5; pointer-events:none; }
+        .context-menu .sep { height:1px; background:#2a2a2a; margin:6px 0; }
+
+        /* Модалка перемещения */
+        .modal-backdrop {
+            position: fixed; inset:0; z-index:9998;
+            background: rgba(0,0,0,.5);
+            display:flex; align-items:center; justify-content:center;
+        }
+        .modal {
+            background:#161616; border:1px solid #2a2a2a; border-radius:12px;
+            padding:12px; min-width:320px; max-width:90vw; color:#eaeaea;
+            box-shadow: 0 16px 40px rgba(0,0,0,.5);
+        }
+        .modal h4 { margin:0 0 8px; font-size:16px; }
+        .modal .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
+        .modal select { width:100%; background:#1a1a1a; border:1px solid #2a2a2a; border-radius:8px; padding:6px 8px; color:#eaeaea; }
+        .modal .btn { border-radius:8px; }
+
+        /* === FIX: видимость папок + удобство клика === */
+        .cart-layout {
+            grid-template-columns: clamp(380px, 30vw, 520px) 1fr;
+        }
+
+        .tree {
+            max-height: calc(100vh - 320px);
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .node-row {
+            padding: 8px 10px;
+            gap: 10px;
+        }
+        .node-row .icon { width: 22px; }
+
+        .node-row .label {
+            flex: 1;
+            min-width: 0;
+            line-height: 1.3;
+            white-space: normal;
+            word-break: break-word;
+        }
+
+        .node-row:hover { background:#1e2833; }
+        .node-row.selected {
+            background:#253244;
+            outline: 1px solid #334;
+        }
+        .node-row .label.selected {
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        #currentFolderLabel {
+            font-weight: 700;
+            padding: 2px 6px;
+            background:#202a36;
+            border:1px solid #2a2a2a;
+            border-radius: 6px;
+        }
+
+        /* === FIX: селект «Папка» в таблице и тулбаре — шире и выше === */
+        .folder-select {
+            min-width: clamp(220px, 26vw, 360px);
+            padding: 8px 10px;
+            height: 36px;
+        }
+
+        table.list th:nth-child(5),
+        table.list td:nth-child(5) {
+            width: clamp(220px, 26vw, 360px);
+        }
+    </style>
 </head>
-<body class="p-4">
-<div class="container">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="mb-0">Корзина</h2>
-        <div class="d-flex flex-wrap gap-2 align-items-center">
-            <button type="button" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#saveProjectModal">💾 Сохранить проект</button>
-            <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeSelected()">🗑 Удалить выбранные</button>
+<body>
+<div class="page">
+
+    <h1>Корзина</h1>
+
+    <div class="summary">
+        <div class="pill">Позиций: <span id="positionsCount" th:text="${#lists.size(cartProducts)}">0</span></div>
+        <div class="pill">Кол-во всего: <span id="totalQty" th:text="${totalQuantity}">0</span></div>
+        <div class="pill">Сумма: <span id="grandTotal" th:text="${#numbers.formatDecimal(totalSum,1,2,'COMMA')}">0,00</span></div>
+
+        <div class="toolbar">
+            <a class="btn" href="/cart">Обновить</a>
+            <a class="btn" href="/">На главную</a>
+            <a class="btn" href="/cart/excel">Выгрузить смету (Excel)</a>
+            <a class="btn btn-primary" href="/cart/confirm">Оформить предложение</a>
         </div>
     </div>
 
-    <!-- ⬇️ Добавляем форму загрузки Excel сразу под кнопками -->
-    <div class="mb-3 d-flex align-items-center gap-2">
-        <label for="file" class="form-label mb-0 fw-bold">📥 Загрузить смету:</label>
-        <form action="/cart/upload-estimate" method="post" enctype="multipart/form-data" class="d-flex align-items-center gap-2">
-            <input type="file" id="file" name="file" accept=".xlsx" class="form-control form-control-sm" style="max-width: 200px;" required>
-            <button type="submit" class="btn btn-outline-primary btn-sm">Загрузить</button>
+    <div class="panel" style="margin-bottom:16px">
+        <form class="save-form" id="saveEstimateForm" method="post" action="/cart/save-estimate">
+            <span class="muted">Сохранить смету в историю:</span>
+            <input name="projectName" type="text" placeholder="Название проекта" required />
+            <input type="hidden" name="folderMappingJson" id="folderMappingJson" />
+            <button class="btn">Сохранить</button>
         </form>
+        <div class="hint" style="margin-top:6px">Смета сохранится с текущим составом корзины, количеством, коэффициентами, ценами и папками.</div>
     </div>
 
-    <div class="mb-3">
-        <label for="global-coefficient" class="form-label fw-bold">Общий коэффициент:</label>
-        <input type="number" step="0.1" min="0.1" id="global-coefficient"
-               class="form-control text-center" style="max-width: 100px;" value="1.0"
-               oninput="applyGlobalCoefficient()">
-    </div>
+    <div class="cart-layout">
+        <aside class="panel">
+            <h3>Папки <span class="hint">перетаскивайте строки таблицы на нужную папку. ПКМ по папке — меню</span></h3>
 
+            <div class="tree" id="sectionTree"></div>
 
-
-    <div class="table-responsive">
-        <table class="table table-bordered align-middle text-center">
-            <thead class="table-light">
-            <tr>
-                <th style="width:36px;">
-                    <input type="checkbox" id="select-all" onchange="toggleSelectAll(this)">
-                </th>
-                <th>№</th>
-                <th>Наименование</th>
-                <th>Артикул</th>
-                <th>Бренд</th>
-                <th>Кол-во</th>
-                <th>Базовая цена</th>
-                <th>Сумма базовая</th>
-                <th>Коэф.</th>
-                <th>Цена</th>
-                <th>Сумма</th>
-                <th>Маржа</th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr th:each="product, iterStat : ${cartProducts}" th:id="'row-' + ${product.productId}">
-                <td>
-                    <input type="checkbox" class="select-product" th:attr="data-product-id=${product.productId}">
-                </td>
-                <td th:text="${iterStat.count}">1</td>
-                <td th:text="${product.name}">Название</td>
-                <td th:text="${product.articleCode}">Код</td>
-                <td th:text="${product.brand.brandName}">Бренд</td>
-                <td>
-                    <input type="number" min="0" class="form-control form-control-sm text-center"
-                           th:id="'counter-' + ${product.productId}"
-                           th:value="${quantities[product.productId]}"
-                           onchange="manualQuantityChange(this)">
-                </td>
-                <td th:id="'base-price-' + ${product.productId}"
-                    th:text="${#strings.replace(#numbers.formatDecimal(product.price, 1, 'COMMA', 1, 'POINT'), ',', ' ').replace('.', ',')}">
-                </td>
-
-
-                <td th:id="'base-sum-' + ${product.productId}"
-                    th:text="${#strings.replace(#numbers.formatDecimal(product.price * quantities[product.productId], 1, 'COMMA', 1, 'POINT'), '.', ' ').replace('.', ',')}">0</td>
-                <td>
-                    <input type="number" step="0.1" class="form-control form-control-sm text-center"
-                           th:id="'coefficient-' + ${product.productId}"
-                           th:value="${coefficientMap[product.productId] != null ? coefficientMap[product.productId] : 1.0}"
-                           oninput="coefficientInputChanged(this)">
-                </td>
-                <td th:id="'unit-price-' + ${product.productId}">0</td>
-                <td th:id="'total-sum-' + ${product.productId}">0</td>
-                <td th:id="'margin-' + ${product.productId}">0</td>
-            </tr>
-            </tbody>
-            <tfoot>
-            <tr class="fw-bold">
-                <td colspan="4" class="text-end">Итого:</td >
-                <td th:id="total-qty">0</td>
-                <td></td>
-                <td th:id="total-base">0</td>
-                <td></td>
-                <td></td>
-                <td th:id="total-final">0</td>
-                <td th:id="total-margin">0</td>
-            </tr>
-            </tfoot>
-        </table>
-    </div>
-
-    <div class="text-center mt-3">
-        <a href="/cart/excel" class="btn btn-outline-primary">📊 Скачать смету (Excel)</a>
-    </div>
-
-
-    <div class="d-flex justify-content-between mt-5 flex-wrap gap-2">
-        <a th:href="@{/filter/results(
-        brandId=${filterParams['brandId']},
-        groupId=${filterParams['groupId']},
-        subGroupId=${filterParams['subGroupId']},
-        param1=${filterParams['param1']},
-        param2=${filterParams['param2']},
-        param3=${filterParams['param3']},
-        param4=${filterParams['param4']},
-        param5=${filterParams['param5']}
-    )}" class="btn btn-secondary">← Назад к фильтру</a>
-
-        <form th:action="@{/cart/confirm}" method="post">
-            <button type="submit" class="btn btn-success">✅ Создать КП</button>
-        </form>
-    </div>
-
-</div>
-
-
-
-
-<div class="modal fade" id="saveProjectModal" tabindex="-1" aria-labelledby="saveProjectModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <form th:action="@{/cart/save-estimate}" method="post">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="saveProjectModalLabel">Сохранить проект</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="projectName" class="form-label">Название проекта</label>
-                        <input type="text" class="form-control" id="projectName" name="projectName" required>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                    <button type="submit" class="btn btn-primary">Сохранить</button>
-                </div>
+            <div style="margin-top:10px; font-size:12px; opacity:.8">
+                Выбрана папка: <span id="currentFolderLabel">Общий</span>
             </div>
-        </form>
+
+            <div id="folderProducts" class="folder-products">
+                <h4>Товары в папке</h4>
+                <div class="empty">Пока пусто</div>
+            </div>
+        </aside>
+
+        <main class="panel">
+            <div class="subtoolbar">
+                <span class="muted">Перенести выделенные →</span>
+                <select id="bulkFolderSelect" class="folder-select"></select>
+                <button type="button" class="btn" id="moveSelectedBtn">Перенести</button>
+
+                <button type="button" class="btn btn-danger" id="deleteSelectedBtn">Удалить выбранные</button>
+
+                <span class="muted">Фильтр по названию:</span>
+                <input type="text" id="searchInput" placeholder="Начните ввод..." />
+            </div>
+
+            <div style="overflow:auto; max-height:70vh;">
+                <table class="list" id="cartTable">
+                    <thead>
+                    <tr>
+                        <th style="width:36px;"><input type="checkbox" id="toggleAll" title="Выделить все видимые"></th>
+                        <th>Наименование</th>
+                        <th>Бренд</th>
+                        <th>Артикул</th>
+                        <th>Папка</th>
+                        <th style="width:110px;">Кол-во</th>
+                        <th style="width:120px;">Коэфф.</th>
+                        <th class="price">Цена, шт</th>
+                        <th class="sum">Сумма</th>
+                    </tr>
+                    </thead>
+                    <tbody id="cartTbody">
+                    <tr th:each="p : ${cartProducts}"
+                        th:attr="data-product-id=${p.productId}"
+                        data-draggable="true">
+                        <td><input type="checkbox" class="row-check"></td>
+
+                        <td class="name" th:text="${p.name}">Наименование</td>
+                        <td th:text="${p.brand != null ? p.brand.brandName : '—'}">Brand</td>
+                        <td th:text="${p.articleCode}">code</td>
+
+                        <td>
+                            <select class="folder-select row-folder"></select>
+                        </td>
+
+                        <td>
+                            <div style="display:flex; gap:6px; align-items:center;">
+                                <button type="button" class="btn" onclick="cartUI.plusMinus(this,-1)">−</button>
+                                <input class="qty" type="number" min="0"
+                                       th:value="${quantities[p.productId]}"
+                                       oninput="cartUI.updateQty(this)"
+                                       th:attr="data-product-id=${p.productId}">
+                                <button type="button" class="btn" onclick="cartUI.plusMinus(this,1)">+</button>
+                            </div>
+                        </td>
+
+                        <td>
+                            <input class="coeff" type="number" step="0.01" min="0"
+                                   th:value="${(coefficientMap != null and coefficientMap.containsKey(p.productId)) ? coefficientMap[p.productId] : 1.0}"
+                                   oninput="cartUI.updateCoeff(this)"
+                                   th:attr="data-product-id=${p.productId}">
+                        </td>
+
+                        <td class="price"
+                            th:with="
+        pidRaw=${p.productId},
+        pidS=${#strings.concat('', pidRaw)},
+        up0=${unitPriceMap != null and unitPriceMap.containsKey(pidRaw) ? unitPriceMap[pidRaw] : null},
+        up1=${up0 != null ? up0 : (unitPriceMap != null and unitPriceMap.containsKey(pidS) ? unitPriceMap[pidS] : null)},
+        up2=${up1 != null ? up1 : (unitPriceMap != null and unitPriceMap.containsKey(T(java.lang.Long).valueOf(pidS)) ? unitPriceMap[T(java.lang.Long).valueOf(pidS)] : null)},
+        up3=${up2 != null ? up2 : (unitPriceMap != null and unitPriceMap.containsKey(T(java.lang.Integer).valueOf(pidS)) ? unitPriceMap[T(java.lang.Integer).valueOf(pidS)] : null)},
+        up=${up3 != null ? up3 : 0}
+    "
+                            th:attr="data-unit-price=${up}"
+                            th:text="${#numbers.formatDecimal(up, 1, 2, 'COMMA')}">
+                            0,00
+                        </td>
+
+                        <td class="sum">0,00</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
     </div>
 </div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        const rows = document.querySelectorAll('tr[id^="product-"]');
-        recalculateAll();
-
-        document.querySelectorAll('input[id^="coefficient-"]').forEach(input => {
-            input.addEventListener('input', () => recalculateAll());
-        });
-    });
-
-    function manualQuantityChange(input) {
-        const productId = input.id.split('-')[1];
-        const qty = parseInt(input.value);
-
-        if (isNaN(qty) || qty <= 0) {
-            fetch('/cart/remove', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'productId=' + productId
-            }).then(() => {
-                input.closest('tr').remove(); // удалим строку из таблицы
-                recalculateAll();
-            });
-        } else {
-            fetch('/cart/update', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'productId=' + productId + '&quantity=' + qty
-            }).then(() => recalculateAll());
+    (function(){
+        // ===== Helpers =====
+        function getCsrfHeaders() {
+            const token = document.querySelector('meta[name="_csrf"]')?.content;
+            const header = document.querySelector('meta[name="_csrf_header"]')?.content;
+            const h = new Headers();
+            if (token && header) h.set(header, token);
+            return h;
         }
-    }
-
-
-    function coefficientInputChanged(input) {
-        const productId = input.id.split('-')[1];
-        const value = parseFloat(input.value);
-        if (!isNaN(value) && value > 0) {
-            fetch('/cart/coefficient', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'productId=' + productId + '&coefficient=' + value
-            }).then(() => recalculateAll());
+        async function api(url, opts={}) {
+            const headers = new Headers(opts.headers || {});
+            getCsrfHeaders().forEach((v,k)=>headers.set(k,v));
+            const res = await fetch(url, { credentials:'same-origin', ...opts, headers });
+            if (!res.ok) throw new Error(await res.text());
+            const ct = res.headers.get('content-type')||'';
+            return ct.includes('application/json') ? res.json() : res.text();
         }
-    }
-
-    function recalculateAll() {
-        let totalBase = 0;
-        let totalFinal = 0;
-        let totalQty = 0;
-
-        document.querySelectorAll('input[id^="counter-"]').forEach(counterInput => {
-            const productId = counterInput.id.split('-')[1];
-            const qty = parseFloat(counterInput.value) || 1;
-            totalQty += qty;
-
-            const basePriceText = document.getElementById('base-price-' + productId)?.innerText || '0';
-            const basePrice = parseFloat(basePriceText.replace(/\s/g, '').replace(',', '.')) || 0;
-
-            const coeff = parseFloat(document.getElementById('coefficient-' + productId)?.value || 1);
-
-            const baseSum = basePrice * qty;
-            const unitPrice = basePrice * coeff;
-            const total = unitPrice * qty;
-            const margin = total - baseSum;
-
-            document.getElementById('base-sum-' + productId).innerText = formatNumber(baseSum);
-            document.getElementById('unit-price-' + productId).innerText = formatNumber(unitPrice);
-            document.getElementById('total-sum-' + productId).innerText = formatNumber(total);
-            document.getElementById('margin-' + productId).innerText = formatNumber(margin);
-
-            totalBase += baseSum;
-            totalFinal += total;
-        });
-
-        document.getElementById('total-base').innerText = totalBase.toFixed(1);
-        document.getElementById('total-final').innerText = totalFinal.toFixed(1);
-        document.getElementById('total-margin').innerText = (totalFinal - totalBase).toFixed(1);
-        document.getElementById('total-qty').innerText = totalQty;
-    }
-
-
-    function formatNumber(value) {
-        return value.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-    }
-
-    function clearCart() {
-        fetch('/cart/clear', { method: 'POST' })
-            .then(() => {
-                location.reload(); // обновим страницу после очистки
-            });
-    }
-
-    function applyGlobalCoefficient() {
-        const globalCoeff = parseFloat(document.getElementById('global-coefficient').value);
-        if (isNaN(globalCoeff) || globalCoeff <= 0) return;
-
-        document.querySelectorAll('input[id^="coefficient-"]').forEach(input => {
-            const productId = input.id.split('-')[1];
-            input.value = globalCoeff;
-
-            fetch('/cart/coefficient', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'productId=' + productId + '&coefficient=' + globalCoeff
-            });
-        });
-
-        recalculateAll();
-    }
-
-    function toggleSelectAll(master) {
-        document.querySelectorAll('.select-product').forEach(cb => cb.checked = master.checked);
-    }
-
-    function getSelectedIds() {
-        return Array.from(document.querySelectorAll('.select-product:checked'))
-            .map(cb => parseInt(cb.dataset.productId));
-    }
-
-    function removeSelected() {
-        const ids = getSelectedIds();
-        if (ids.length === 0) {
-            alert('Выберите товары, которые нужно удалить.');
-            return;
+        function qs(sel, root=document){ return root.querySelector(sel); }
+        function qsa(sel, root=document){ return Array.from(root.querySelectorAll(sel)); }
+        function fmtMoney(n){
+            const v = Number(n||0);
+            return v.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
 
-        const body = new URLSearchParams();
-        ids.forEach(id => body.append('productIds', id));
+        // ===== Состояние =====
+        const treeEl = document.getElementById('sectionTree');
+        const currentFolderLabel = document.getElementById('currentFolderLabel');
+        const folderProductsBox = document.getElementById('folderProducts');
 
-        fetch('/cart/remove-selected', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body.toString()
-        }).then(() => {
-            // убираем строки из таблицы
-            ids.forEach(id => {
-                const row = document.getElementById('row-' + id);
-                if (row) row.remove();
+        const moveSelectedBtn = document.getElementById('moveSelectedBtn');
+        const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+        const bulkFolderSelect = document.getElementById('bulkFolderSelect');
+        const toggleAll = document.getElementById('toggleAll');
+        const searchInput = document.getElementById('searchInput');
+        const cartTbody = document.getElementById('cartTbody');
+
+        const saveForm = document.getElementById('saveEstimateForm');
+        const folderMappingField = document.getElementById('folderMappingJson');
+
+        let selectedFolderId = 1;
+        let mapping = {};          // productId -> sectionId
+        let idToName = {1:'Общий'};
+        let currentTree = [];      // full tree cache
+        let flatSections = [];     // [{id, name, path}]
+        const productIndex = {};   // productId -> {row, name}
+
+        // Контекстное меню (для папок)
+        let ctxEl = null;
+        function closeCtx(){ if (ctxEl && ctxEl.parentNode){ ctxEl.parentNode.removeChild(ctxEl); } ctxEl=null; }
+        function openCtxMenu(node, x, y){
+            closeCtx();
+            ctxEl = document.createElement('div');
+            ctxEl.className = 'context-menu';
+
+            const mkItem = (label, handler, disabled=false)=>{
+                const it = document.createElement('div');
+                it.className = 'item';
+                it.textContent = label;
+                if (disabled) it.setAttribute('disabled','true');
+                it.addEventListener('click', async (e)=>{
+                    e.stopPropagation();
+                    closeCtx();
+                    await handler();
+                });
+                ctxEl.appendChild(it);
+                return it;
+            };
+
+            const isRoot = node.id === 1;
+
+            mkItem('Новая подпапка…', async ()=>{
+                const nm = prompt('Название новой папки:');
+                if (!nm) return;
+                await createSection(nm, node.id);
+                await reloadTree();
+                updateFolderContents();
             });
-            // пересчитать итоги
-            recalculateAll();
 
-            // снять общий чекбокс
-            const master = document.getElementById('select-all');
-            if (master) master.checked = false;
-        }).catch(err => {
-            console.error('Ошибка при удалении выбранных:', err);
-            alert('Не удалось удалить выбранные позиции');
-        });
-    }
+            const sep = document.createElement('div'); sep.className='sep'; ctxEl.appendChild(sep);
+
+            mkItem('Переместить папку…', async ()=>{
+                await showMoveDialog(node.id);
+            }, isRoot);
+
+            mkItem('Удалить папку…', async ()=>{
+                const ok = confirm('Удалить папку «'+node.name+'»? Товары будут перенесены в «Общий».');
+                if (!ok) return;
+                try {
+                    await deleteSection(node.id);
+                } catch(e){
+                    alert('Не удалось удалить папку: ' + e.message);
+                    return;
+                }
+                if (selectedFolderId === node.id) selectedFolderId = 1;
+                await reloadMapping();
+                await reloadTree();
+                updateFolderContents();
+                filterRows();
+            }, isRoot);
+
+            document.body.appendChild(ctxEl);
+
+            const pad = 8;
+            const vw = window.innerWidth, vh = window.innerHeight;
+            requestAnimationFrame(()=>{
+                const rect = ctxEl.getBoundingClientRect();
+                let left = Math.min(x, vw - rect.width - pad);
+                let top  = Math.min(y, vh - rect.height - pad);
+                ctxEl.style.left = left + 'px';
+                ctxEl.style.top  = top + 'px';
+            });
+        }
+
+        function showMoveDialog(sectionId){
+            return new Promise(resolve=>{
+                const backdrop = document.createElement('div');
+                backdrop.className = 'modal-backdrop';
+                const box = document.createElement('div');
+                box.className = 'modal';
+                box.innerHTML = '<h4>Переместить папку</h4>';
+                const info = document.createElement('div');
+                info.className = 'muted';
+                info.style.marginBottom = '8px';
+                info.textContent = 'Выберите новый родитель для папки.';
+                const sel = document.createElement('select');
+
+                const forbidden = new Set([sectionId, ...descendantsOf(sectionId)]);
+                flatSections.forEach(s=>{
+                    if (forbidden.has(s.id)) return;
+                    const opt = document.createElement('option');
+                    opt.value = String(s.id);
+                    opt.textContent = s.path;
+                    sel.appendChild(opt);
+                });
+
+                const actions = document.createElement('div');
+                actions.className = 'actions';
+                const btnCancel = document.createElement('button');
+                btnCancel.className = 'btn';
+                btnCancel.textContent = 'Отмена';
+                const btnOk = document.createElement('button');
+                btnOk.className = 'btn btn-primary';
+                btnOk.textContent = 'Переместить';
+
+                actions.appendChild(btnCancel);
+                actions.appendChild(btnOk);
+
+                box.appendChild(info);
+                box.appendChild(sel);
+                box.appendChild(actions);
+                backdrop.appendChild(box);
+                document.body.appendChild(backdrop);
+
+                function close(){ backdrop.parentNode && backdrop.parentNode.removeChild(backdrop); resolve(); }
+                btnCancel.addEventListener('click', close);
+                backdrop.addEventListener('click', (e)=>{ if(e.target===backdrop) close(); });
+                document.addEventListener('keydown', function onEsc(ev){ if(ev.key==='Escape'){ document.removeEventListener('keydown', onEsc); close(); }});
+
+                btnOk.addEventListener('click', async ()=>{
+                    const newParentId = Number(sel.value);
+                    try {
+                        await moveSection(sectionId, newParentId);
+                        await reloadTree();
+                        updateFolderContents();
+                        filterRows();
+                        close();
+                    } catch(e){
+                        alert('Не удалось переместить: ' + e.message);
+                    }
+                });
+            });
+        }
+
+        function indexRows(){
+            qsa('tr[data-product-id]', cartTbody).forEach(tr => {
+                const pid = Number(tr.dataset.productId);
+                if (!pid) return;
+                const nm = qs('.name', tr)?.textContent?.trim() || ('#'+pid);
+                productIndex[pid] = { row: tr, name: nm };
+            });
+        }
+
+        // Удаляем из mapping те productId, которых нет в текущей корзине
+        function sanitizeMapping(){
+            Object.keys(mapping).forEach(k => {
+                const pid = Number(k);
+                if (!productIndex[pid]) delete mapping[k];
+            });
+        }
+
+        function countsBySection(){
+            const counts = {};
+            Object.entries(mapping).forEach(([pid, sid])=>{
+                if (!productIndex[Number(pid)]) return;
+                const s = Number(sid) || 1;
+                counts[s] = (counts[s]||0)+1;
+            });
+            return counts;
+        }
+
+        function flattenTree(nodes, trail=[]){
+            const out = [];
+            (nodes||[]).forEach(n=>{
+                const path = [...trail, n.name].join(' / ');
+                out.push({ id:n.id, name:n.name, path });
+                if (n.children?.length){
+                    out.push(...flattenTree(n.children, [...trail, n.name]));
+                }
+            });
+            return out;
+        }
+
+        function descendantsOf(rootId){
+            const res = [];
+            (function walk(list){
+                (list||[]).forEach(n=>{
+                    if (n.id === rootId){
+                        collect(n.children);
+                    } else if (n.children && n.children.length){
+                        walk(n.children);
+                    }
+                });
+            })(currentTree);
+            function collect(children){
+                (children||[]).forEach(ch=>{
+                    res.push(ch.id);
+                    collect(ch.children);
+                });
+            }
+            return res;
+        }
+
+        function renderTree(nodes){
+            currentTree = nodes || [];
+            const counts = countsBySection();
+            idToName = {1:'Общий'};
+
+            (function walk(ns){
+                (ns||[]).forEach(n=>{
+                    idToName[n.id] = n.name;
+                    if (n.children?.length) walk(n.children);
+                });
+            })(nodes);
+
+            flatSections = flattenTree(nodes || []);
+            bulkFolderSelect.innerHTML = '';
+            flatSections.forEach(s=>{
+                const opt = document.createElement('option');
+                opt.value = String(s.id);
+                opt.textContent = s.path;
+                bulkFolderSelect.appendChild(opt);
+            });
+
+            // если выбранная папка пропала — вернёмся к «Общий»
+            if (!flatSections.some(s => s.id === selectedFolderId)) {
+                selectedFolderId = 1;
+            }
+            currentFolderLabel.textContent = idToName[selectedFolderId] || 'Общий';
+
+            const ulTop = document.createElement('ul');
+            (nodes || []).forEach(n => ulTop.appendChild(renderNode(n, counts)));
+            treeEl.innerHTML = '';
+            treeEl.appendChild(ulTop);
+
+            fillRowFolderSelects();
+        }
+
+        function renderNode(node, counts){
+            const li = document.createElement('li');
+            const row = document.createElement('div');
+            row.className = 'node-row';
+            row.dataset.id = node.id;
+
+            const icon = document.createElement('span');
+            icon.className = 'icon';
+            icon.textContent = (node.children?.length ? '📁' : '📄');
+
+            const label = document.createElement('span');
+            const cnt = counts[node.id] || 0;
+            label.className = 'label';
+            label.textContent = node.name + ' ('+cnt+')';
+
+            if (node.id === selectedFolderId) {
+                row.classList.add('selected');
+                label.classList.add('selected');
+            }
+
+            row.addEventListener('click', () => {
+                selectedFolderId = node.id;
+                currentFolderLabel.textContent = node.name;
+
+                qsa('.tree .label.selected', treeEl).forEach(el => el.classList.remove('selected'));
+                qsa('.tree .node-row.selected', treeEl).forEach(el => el.classList.remove('selected'));
+
+                label.classList.add('selected');
+                row.classList.add('selected');
+
+                filterRows();
+                updateFolderContents();
+            });
+
+            row.addEventListener('dragover', ev => ev.preventDefault());
+            row.addEventListener('drop', async ev => {
+                ev.preventDefault();
+                const productId = Number(ev.dataTransfer.getData('text/product-id'));
+                if (!productId) return;
+                await assignProducts(node.id, [productId]);
+                await reloadMapping();
+                await reloadTree();
+                updateFolderContents();
+                filterRows();
+            });
+
+            row.addEventListener('contextmenu', (e)=>{
+                e.preventDefault();
+                openCtxMenu(node, e.clientX, e.clientY);
+            });
+
+            row.appendChild(icon);
+            row.appendChild(label);
+
+            li.appendChild(row);
+
+            if (node.children?.length) {
+                const ul = document.createElement('ul');
+                node.children.forEach(ch => ul.appendChild(renderNode(ch, counts)));
+                li.appendChild(ul);
+            }
+            return li;
+        }
+
+        async function reloadTree(){
+            try {
+                const data = await api('/cart/sections/tree');
+                renderTree(data);
+            } catch(e){
+                const flat = await api('/cart/sections');
+                const nodes = Object.entries(flat).map(([id,name]) => ({id:Number(id), name, children:[]}));
+                renderTree([{id:1, name: flat[1] || 'Общий', children: nodes.filter(n=>n.id!==1)}]);
+            }
+        }
+
+        async function reloadMapping(){
+            mapping = await api('/cart/sections/mapping');
+            sanitizeMapping();
+        }
+
+        async function createSection(name, parentId){
+            const params = new URLSearchParams();
+            params.set('name', name);
+            if (parentId) params.set('parentId', parentId);
+            await api('/cart/sections', {
+                method:'POST',
+                headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+                body: params
+            });
+        }
+
+        async function deleteSection(sectionId){
+            try {
+                await api(`/cart/sections/${sectionId}`, { method:'DELETE' });
+                return;
+            } catch(_) {}
+            try {
+                const params = new URLSearchParams();
+                params.set('sectionId', sectionId);
+                await api('/cart/sections/delete', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: params
+                });
+                return;
+            } catch(_) {}
+            await api(`/cart/sections?sectionId=${encodeURIComponent(sectionId)}`, { method:'DELETE' });
+        }
+
+        async function moveSection(sectionId, newParentId){
+            const params = new URLSearchParams();
+            params.set('sectionId', sectionId);
+            params.set('newParentId', newParentId);
+            try {
+                await api('/cart/sections/move', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: params
+                });
+                return;
+            } catch(_) {}
+            await api(`/cart/sections/${sectionId}/move`, {
+                method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: params
+            });
+        }
+
+        function fillRowFolderSelects(){
+            qsa('tr[data-product-id]', cartTbody).forEach(tr=>{
+                const pid = Number(tr.dataset.productId);
+                const currentSid = Number(mapping[pid] ?? 1);
+                const sel = qs('select.row-folder', tr);
+                if (!sel) return;
+                sel.innerHTML = '';
+                flatSections.forEach(s=>{
+                    const opt = document.createElement('option');
+                    opt.value = String(s.id);
+                    opt.textContent = s.path;
+                    if (s.id === currentSid) opt.selected = true;
+                    sel.appendChild(opt);
+                });
+                sel.addEventListener('change', async (e)=>{
+                    const sid = Number(e.target.value);
+                    await assignProducts(sid, [pid]);
+                    mapping[pid] = sid;
+                    await reloadTree();
+                    updateFolderContents();
+                    filterRows();
+                });
+            });
+        }
+
+        async function assignProducts(sectionId, productIds){
+            const params = new URLSearchParams();
+            params.set('sectionId', sectionId);
+            productIds.forEach(id => params.append('productIds', id));
+            await api('/cart/sections/assign', {
+                method:'POST',
+                headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+                body: params
+            });
+        }
+
+        function enableDnDOnRows(){
+            qsa('tr[data-product-id]', cartTbody).forEach(tr=>{
+                const pid = tr.dataset.productId;
+                if (!pid) return;
+                tr.setAttribute('draggable','true');
+                tr.addEventListener('dragstart', ev=>{
+                    ev.dataTransfer.setData('text/product-id', String(pid));
+                });
+            });
+        }
+
+        function visibleRows(){
+            return qsa('tr[data-product-id]', cartTbody).filter(tr => tr.style.display !== 'none');
+        }
+        function setAllVisible(checked){
+            visibleRows().forEach(tr=>{
+                const cb = qs('.row-check', tr);
+                if (cb) cb.checked = checked;
+            });
+        }
+        function clearSelection(){
+            setAllVisible(false);
+            updateSelectionUI();
+        }
+        function updateSelectionUI(){
+            const rows = visibleRows();
+            const all = rows.length > 0 && rows.every(tr => qs('.row-check', tr)?.checked);
+            const some = rows.some(tr => qs('.row-check', tr)?.checked);
+
+            toggleAll.checked = all;
+            toggleAll.indeterminate = !all && some;
+        }
+
+        function filterRows(){
+            const term = (searchInput.value || '').trim().toLowerCase();
+            qsa('tr[data-product-id]', cartTbody).forEach(tr=>{
+                const pid = Number(tr.dataset.productId);
+                const sid = Number(mapping[pid] ?? 1);
+                const inFolder = (sid === selectedFolderId);
+                const name = qs('.name', tr)?.textContent?.toLowerCase() || '';
+                const matches = !term || name.includes(term);
+                tr.style.display = (inFolder && matches) ? '' : 'none';
+            });
+            updateSelectionUI();
+        }
+
+        function updateFolderContents(){
+            const list = Object.entries(mapping)
+                .filter(([pid, sid]) => Number(sid ?? 1) === selectedFolderId)
+                .map(([pid]) => Number(pid))
+                .filter(pid => !!productIndex[pid]);
+
+            folderProductsBox.innerHTML = '<h4>Товары в папке</h4>';
+            if (!list.length) {
+                const empty = document.createElement('div');
+                empty.className = 'empty';
+                empty.textContent = 'Пока пусто';
+                folderProductsBox.appendChild(empty);
+                return;
+            }
+
+            const ul = document.createElement('ul');
+            list.forEach(pid => {
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.textContent = productIndex[pid]?.name || ('Товар #'+pid);
+                a.addEventListener('click', () => {
+                    const row = productIndex[pid]?.row;
+                    if (row && row.style.display !== 'none'){
+                        row.scrollIntoView({behavior:'smooth', block:'center'});
+                        row.style.outline = '2px dashed #777';
+                        setTimeout(()=>row.style.outline='none', 1000);
+                    }
+                });
+                li.appendChild(a);
+                ul.appendChild(li);
+            });
+            folderProductsBox.appendChild(ul);
+        }
+
+        // ===== Итоги (все строки) =====
+        function recalcSummary() {
+            const rows = qsa('tr[data-product-id]', cartTbody);
+            let positions = 0;
+            let totalQty = 0;
+            let grand = 0;
+
+            rows.forEach(tr => {
+                const qty   = Number(qs('input.qty', tr)?.value || 0);
+                const coeff = Number(qs('input.coeff', tr)?.value || 1);
+                const priceEl = qs('.price', tr);
+                const unit  = Number(priceEl?.dataset.unitPrice ?? priceEl?.getAttribute('data-unit-price') ?? 0);
+                if (qty > 0) {
+                    positions += 1;
+                    totalQty  += qty;
+                    grand     += qty * coeff * unit;
+                }
+            });
+
+            const posEl = document.getElementById('positionsCount');
+            const qtyEl = document.getElementById('totalQty');
+            const sumEl = document.getElementById('grandTotal');
+
+            if (posEl) posEl.textContent = String(positions);
+            if (qtyEl) qtyEl.textContent = String(totalQty);
+            if (sumEl) sumEl.textContent = fmtMoney(grand);
+        }
+
+        // ===== Пересчёт суммы в строке (+ вызов итогов) =====
+        function recalcRowSum(tr){
+            const qty = Number(qs('input.qty', tr)?.value || 0);
+            const coeff = Number(qs('input.coeff', tr)?.value || 1);
+            const priceEl = qs('.price', tr);
+            const unit = Number(priceEl?.dataset.unitPrice ?? priceEl?.getAttribute('data-unit-price') ?? 0);
+            const sum = qty * coeff * unit;
+            const sumCell = qs('.sum', tr);
+            sumCell.textContent = fmtMoney(sum);
+            sumCell.dataset.value = String(sum);
+            recalcSummary();
+        }
+
+        function recalcAllRows(){
+            qsa('tr[data-product-id]', cartTbody).forEach(recalcRowSum);
+            recalcSummary();
+        }
+
+        function getVisibleCheckedIds(){
+            return visibleRows()
+                .filter(tr => qs('.row-check', tr)?.checked)
+                .map(tr => Number(tr.dataset.productId));
+        }
+
+        async function bulkDelete(ids){
+            // удаляем на бэкенде (quantity=0) и чистим UI
+            for (const pid of ids){
+                const params = new URLSearchParams();
+                params.set('productId', pid);
+                params.set('quantity', 0);
+                await api('/cart/update', {
+                    method:'POST',
+                    headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+                    body: params
+                });
+                const row = productIndex[pid]?.row;
+                if (row && row.parentElement) row.parentElement.removeChild(row);
+                delete productIndex[pid];
+                delete mapping[pid];
+            }
+            sanitizeMapping();
+            await reloadTree();
+            updateFolderContents();
+            recalcSummary();
+            updateSelectionUI();
+            filterRows();
+        }
+
+        // ===== UI API =====
+        window.cartUI = {
+            async plusMinus(btn, delta){
+                const tr = btn.closest('tr');
+                const input = qs('input.qty', tr);
+                const next = Math.max(0, Number(input.value||0) + delta);
+                input.value = next;
+                await window.cartUI.updateQty(input);
+            },
+            async updateQty(input){
+                const pid = Number(input.getAttribute('data-product-id'));
+                const val = Number(input.value || 0);
+                const params = new URLSearchParams();
+                params.set('productId', pid);
+                params.set('quantity', val);
+                await api('/cart/update', {
+                    method:'POST',
+                    headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+                    body: params
+                });
+                if (val <= 0){
+                    const tr = input.closest('tr');
+                    tr?.parentElement?.removeChild(tr);
+                    delete productIndex[pid];
+                    delete mapping[pid];
+                    sanitizeMapping();
+                    await reloadTree();
+                    updateFolderContents();
+                    recalcSummary();
+                    updateSelectionUI();
+                } else {
+                    recalcRowSum(input.closest('tr'));
+                    updateSelectionUI();
+                }
+            },
+            async updateCoeff(input){
+                const pid = Number(input.getAttribute('data-product-id'));
+                const val = Number(input.value || 1);
+                const params = new URLSearchParams();
+                params.set('productId', pid);
+                params.set('coefficient', val);
+                await api('/cart/coefficient', {
+                    method:'POST',
+                    headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+                    body: params
+                });
+                recalcRowSum(input.closest('tr'));
+            }
+        };
+
+        function wireUI(){
+            indexRows();
+
+            // Закрытие контекстного меню
+            document.addEventListener('click', closeCtx);
+            window.addEventListener('scroll', closeCtx, true);
+            window.addEventListener('resize', closeCtx);
+            document.addEventListener('keydown', (e)=>{ if (e.key==='Escape') closeCtx(); });
+
+            toggleAll.addEventListener('change', ()=>{
+                const checked = toggleAll.checked;
+                setAllVisible(checked);
+                updateSelectionUI();
+            });
+
+            // отслеживаем изменения чекбоксов строк
+            cartTbody.addEventListener('change', (e)=>{
+                if (e.target && e.target.classList.contains('row-check')) {
+                    updateSelectionUI();
+                }
+            });
+
+            searchInput.addEventListener('input', filterRows);
+
+            moveSelectedBtn.addEventListener('click', async ()=>{
+                const ids = getVisibleCheckedIds();
+                if (!ids.length) return;
+                const sid = Number(bulkFolderSelect.value || selectedFolderId);
+                await assignProducts(sid, ids);
+                ids.forEach(id => mapping[id] = sid);
+                await reloadTree();
+                updateFolderContents();
+                clearSelection();
+                filterRows();
+            });
+
+            deleteSelectedBtn.addEventListener('click', async ()=>{
+                const ids = getVisibleCheckedIds();
+                if (!ids.length) return;
+                const ok = confirm(`Удалить выбранные позиции (${ids.length} шт.) из корзины?`);
+                if (!ok) return;
+                await bulkDelete(ids);
+            });
+
+            // === СВЯЗКА ФОРМЫ "СОХРАНИТЬ В ИСТОРИЮ" ===
+            (function initFormBinding(){
+                if (!saveForm) return;
+                saveForm.addEventListener('submit', () => {
+                    const mapToSend = {};
+                    Object.keys(productIndex).forEach(k => {
+                        const pid = Number(k);
+                        if (!productIndex[pid]) return;
+                        const sid = Number(mapping[pid] ?? 1); // 1 = "Общий"
+                        mapToSend[pid] = sid;
+                    });
+                    if (folderMappingField) {
+                        folderMappingField.value = JSON.stringify(mapToSend);
+                    }
+                });
+            })();
+
+            enableDnDOnRows();
+        }
+
+        (async function init(){
+            indexRows();
+            await reloadMapping();
+            await reloadTree();
+            wireUI();
+            recalcAllRows();
+            filterRows();
+            updateFolderContents();
+            updateSelectionUI();
+        })();
+
+    })();
 </script>
 </body>
 </html>

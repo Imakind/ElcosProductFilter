@@ -109,6 +109,7 @@
             return "filter";
         }
 
+
         @GetMapping("/filter/options")
         @ResponseBody
         public Map<String, Object> getOptionsByBrand(@RequestParam("brandId") Integer brandId) {
@@ -377,13 +378,20 @@
 
         @PostMapping("/cart/add")
         @ResponseBody
-        public void addToCart(@RequestParam("productId") Integer productId, HttpSession session) {
+        public void addToCart(@RequestParam("productId") Integer productId,
+                              @RequestParam(value = "sectionId", required = false) Long sectionId,
+                              HttpSession session) {
+            @SuppressWarnings("unchecked")
             Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
             if (cart == null) cart = new HashMap<>();
-
             cart.put(productId, cart.getOrDefault(productId, 0) + 1);
             session.setAttribute("cart", cart);
+
+            Map<Long, String> sec = ensureSections(session);
+            Long sid = (sectionId != null && sec.containsKey(sectionId)) ? sectionId : 1L;
+            ensureProductSection(session).put(productId, sid);
         }
+
 
         @GetMapping("/cart")
         public String viewCart(Model model, HttpSession session) {
@@ -405,8 +413,12 @@
                     : List.of();
 
 
+            Map<Integer, Double> unitPriceMap = new HashMap<>();
+            for (Product p : products) {
+                unitPriceMap.put(p.getProductId(), p.getPrice() != null ? p.getPrice() : 0.0);
+            }
+            model.addAttribute("unitPriceMap", unitPriceMap);
 
-            // Параметры товаров
             List<ProductParameters> parameters = parameterRepo.findByProduct_ProductIdIn(
                     products.stream().map(Product::getProductId).collect(Collectors.toSet())
             );
@@ -445,7 +457,6 @@
 
             model.addAttribute("productCategoriesMap", productIdToCategories);
 
-            //  Восстановим параметры фильтра (если надо вернуться)
             Map<String, Object> lastFilters = (Map<String, Object>) session.getAttribute("lastFilters");
             model.addAttribute("filterParams", lastFilters != null ? lastFilters : new HashMap<>());
 
@@ -485,17 +496,20 @@
         @PostMapping("/cart/remove")
         @ResponseBody
         public void removeFromCart(@RequestParam("productId") Integer productId, HttpSession session) {
+            @SuppressWarnings("unchecked")
             Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
-            if (cart != null) {
-                int qty = cart.getOrDefault(productId, 0);
-                if (qty > 1) {
-                    cart.put(productId, qty - 1);
-                } else {
-                    cart.remove(productId);
-                }
-                session.setAttribute("cart", cart);
+            if (cart == null) return;
+
+            int qty = cart.getOrDefault(productId, 0);
+            if (qty > 1) {
+                cart.put(productId, qty - 1);
+            } else {
+                cart.remove(productId);
+                ensureProductSection(session).remove(productId);
             }
+            session.setAttribute("cart", cart);
         }
+
 
 
         @PostMapping("/cart/confirm")
@@ -798,7 +812,13 @@
         public void clearCart(HttpSession session) {
             session.removeAttribute("cart");
             session.removeAttribute("coefficientMap");
+            // сбросим разделы в дефолт
+            Map<Long, String> sec = new LinkedHashMap<>();
+            sec.put(1L, "Общий");
+            session.setAttribute("sections", sec);
+            session.setAttribute("productSection", new HashMap<Integer, Long>());
         }
+
 
         @GetMapping("/filter/subgroups/all")
         @ResponseBody
@@ -1131,23 +1151,24 @@
             return "redirect:/admin/add-product";
         }
 
-        // ProductFilterController.java
         @PostMapping("/cart/remove-selected")
         @ResponseBody
         public void removeSelected(@RequestParam("productIds") List<Integer> productIds, HttpSession session) {
+            @SuppressWarnings("unchecked")
             Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
+            @SuppressWarnings("unchecked")
             Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
 
             if (cart == null) return;
             for (Integer id : productIds) {
-                cart.remove(id);                     // удаляем из корзины полностью
-                if (coefficientMap != null) {
-                    coefficientMap.remove(id);       // и коэффициент, если был
-                }
+                cart.remove(id);
+                ensureProductSection(session).remove(id); // убираем привязку раздела
+                if (coefficientMap != null) coefficientMap.remove(id);
             }
             session.setAttribute("cart", cart);
             session.setAttribute("coefficientMap", coefficientMap);
         }
+
 
         @RestController
         @RequestMapping("/filter")
@@ -1333,5 +1354,27 @@
                 }
             }
         }
+
+        @SuppressWarnings("unchecked")
+        private Map<Long, String> ensureSections(HttpSession s) {
+            Map<Long, String> sec = (Map<Long, String>) s.getAttribute("sections");
+            if (sec == null) {
+                sec = new LinkedHashMap<>();
+                sec.put(1L, "Общий"); // раздел по умолчанию
+                s.setAttribute("sections", sec);
+            }
+            return sec;
+        }
+
+        @SuppressWarnings("unchecked")
+        private Map<Integer, Long> ensureProductSection(HttpSession s) {
+            Map<Integer, Long> map = (Map<Integer, Long>) s.getAttribute("productSection");
+            if (map == null) {
+                map = new HashMap<>();
+                s.setAttribute("productSection", map);
+            }
+            return map;
+        }
+
 
     }
