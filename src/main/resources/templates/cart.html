@@ -155,6 +155,18 @@
         table.list td:nth-child(5) {
             width: clamp(220px, 26vw, 360px);
         }
+
+        .subtoolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+        .cluster { display:flex; align-items:center; gap:8px; flex-wrap:nowrap; white-space:nowrap; }
+
+        /* широкие селекты съедают место – чуть прижмём в тулбаре на узких экранах */
+        @media (max-width: 1200px){
+            .subtoolbar .folder-select { min-width: 200px; }
+        }
+        @media (max-width: 980px){
+            .subtoolbar .folder-select { min-width: 160px; }
+        }
     </style>
 </head>
 <body>
@@ -210,6 +222,13 @@
                 <button type="button" class="btn" id="moveSelectedBtn">Перенести</button>
 
                 <button type="button" class="btn btn-danger" id="deleteSelectedBtn">Удалить выбранные</button>
+
+                <div class="cluster">
+                    <span class="muted">Коэфф. для выделенных:</span>
+                    <input type="number" step="0.01" min="0" id="bulkCoeffInput" value="1.00" style="width:110px" />
+                    <button type="button" class="btn" id="applyCoeffBtn" disabled>Применить</button>
+                </div>
+
 
                 <span class="muted">Фильтр по названию:</span>
                 <input type="text" id="searchInput" placeholder="Начните ввод..." />
@@ -325,6 +344,10 @@
 
         const saveForm = document.getElementById('saveEstimateForm');
         const folderMappingField = document.getElementById('folderMappingJson');
+
+        const bulkCoeffInput = document.getElementById('bulkCoeffInput');
+        const applyCoeffBtn  = document.getElementById('applyCoeffBtn');
+
 
         let selectedFolderId = 1;
         let mapping = {};          // productId -> sectionId
@@ -782,6 +805,49 @@
             });
         }
 
+        async function bulkSetCoeff(ids, coeff){
+            // 1) пробуем bulk-роут (если добавите на бэке)
+            let usedBulk = false;
+            try {
+                const params = new URLSearchParams();
+                params.set('coefficient', coeff);
+                ids.forEach(id => params.append('productIds', id));
+                await api('/cart/coefficient/bulk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: params
+                });
+                usedBulk = true;
+            } catch (_) { /* пойдём фолбэком */ }
+
+            // 2) фолбэк: по одному на уже существующий /cart/coefficient
+            if (!usedBulk) {
+                for (const pid of ids) {
+                    const params = new URLSearchParams();
+                    params.set('productId', pid);
+                    params.set('coefficient', coeff);
+                    await api('/cart/coefficient', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params
+                    });
+                }
+            }
+
+            // 3) локально проставим значения и пересчитаем суммы
+            ids.forEach(pid => {
+                const row = productIndex[pid]?.row;
+                const input = row && row.querySelector('input.coeff');
+                if (input) {
+                    input.value = coeff;
+                    recalcRowSum(row);
+                }
+            });
+            recalcSummary();
+        }
+
+
+
         function enableDnDOnRows(){
             qsa('tr[data-product-id]', cartTbody).forEach(tr=>{
                 const pid = tr.dataset.productId;
@@ -813,6 +879,12 @@
 
             toggleAll.checked = all;
             toggleAll.indeterminate = !all && some;
+
+            if (applyCoeffBtn) {
+                const rows = visibleRows();
+                const some = rows.some(tr => qs('.row-check', tr)?.checked);
+                applyCoeffBtn.disabled = !some;
+            }
         }
 
         function filterRows(){
@@ -997,6 +1069,36 @@
             window.addEventListener('resize', closeCtx);
             document.addEventListener('keydown', (e)=>{ if (e.key==='Escape') closeCtx(); });
 
+            // Кнопка "Применить" для массовой смены коэффициента
+            if (applyCoeffBtn) {
+                applyCoeffBtn.addEventListener('click', async () => {
+                    const ids = getVisibleCheckedIds();
+                    if (!ids.length) return;
+
+                    // поддержим запятую как десятичный разделитель
+                    const raw = String(bulkCoeffInput.value || '1').replace(',', '.');
+                    const val = Number(raw);
+
+                    if (!Number.isFinite(val) || val < 0) {
+                        alert('Введите корректный коэффициент (неотрицательное число)');
+                        return;
+                    }
+
+                    await bulkSetCoeff(ids, val);  // вызов глобальной функции
+                });
+            }
+
+// Применять по Enter из поля
+            if (bulkCoeffInput) {
+                bulkCoeffInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        applyCoeffBtn?.click();
+                    }
+                });
+            }
+
+
             toggleAll.addEventListener('change', ()=>{
                 const checked = toggleAll.checked;
                 setAllVisible(checked);
@@ -1048,6 +1150,8 @@
                     }
                 });
             })();
+
+
 
             enableDnDOnRows();
         }
