@@ -171,7 +171,9 @@
             <a class="btn" href="/cart">Обновить</a>
             <a class="btn" href="/">На главную</a>
             <a class="btn" href="/cart/excel">Выгрузить смету (Excel)</a>
-            <a class="btn btn-primary" href="/cart/confirm">Оформить предложение</a>
+            <form method="post" action="/cart/confirm" style="display:inline;">
+                <button class="btn btn-primary">Оформить предложение</button>
+            </form>
         </div>
     </div>
 
@@ -331,6 +333,7 @@
         let flatSections = [];     // [{id, name, path}]
         const productIndex = {};   // productId -> {row, name}
 
+
         // Контекстное меню (для папок)
         let ctxEl = null;
         function closeCtx(){ if (ctxEl && ctxEl.parentNode){ ctxEl.parentNode.removeChild(ctxEl); } ctxEl=null; }
@@ -368,6 +371,18 @@
             mkItem('Переместить папку…', async ()=>{
                 await showMoveDialog(node.id);
             }, isRoot);
+
+            mkItem('Очистить папку…', async ()=> {
+                try {
+                    await clearSection(node.id);
+                    await reloadMapping();
+                    await reloadTree();
+                    updateFolderContents();
+                    filterRows();
+                } catch (e) {
+                    alert('Не удалось очистить: ' + e.message);
+                }
+            }, false);
 
             mkItem('Удалить папку…', async ()=>{
                 const ok = confirm('Удалить папку «'+node.name+'»? Товары будут перенесены в «Общий».');
@@ -618,14 +633,34 @@
 
         async function reloadTree(){
             try {
-                const data = await api('/cart/sections/tree');
+                const data = await api('/cart/sections/tree');     // основной путь
                 renderTree(data);
-            } catch(e){
-                const flat = await api('/cart/sections');
-                const nodes = Object.entries(flat).map(([id,name]) => ({id:Number(id), name, children:[]}));
-                renderTree([{id:1, name: flat[1] || 'Общий', children: nodes.filter(n=>n.id!==1)}]);
+            } catch (e1) {
+                try {
+                    // 1-й фолбэк: старый плоский формат id->name
+                    const flat = await api('/cart/sections/flat');
+                    const nodes = Object.entries(flat).map(([id, name]) => ({
+                        id: Number(id), name, children: []
+                    }));
+                    renderTree([{ id: 1, name: flat['1'] || flat[1] || 'Общий', children: nodes.filter(n => n.id !== 1) }]);
+                } catch (e2) {
+                    // 2-й фолбэк: новый список [{id,name,parentId}]
+                    const list = await api('/cart/sections'); // List<Map<String,Object>>
+                    const map = new Map();
+                    list.forEach(it => map.set(it.id, { id: it.id, name: it.name, children: [] }));
+                    const roots = [];
+                    list.forEach(it => {
+                        const node = map.get(it.id);
+                        const p = it.parentId;
+                        if (p == null) roots.push(node);
+                        else (map.get(p)?.children || []).push(node);
+                    });
+                    // если почему-то пусто — показываем хотя бы «Общий»
+                    renderTree(roots.length ? roots : [{ id: 1, name: 'Общий', children: [] }]);
+                }
             }
         }
+
 
         async function reloadMapping(){
             mapping = await api('/cart/sections/mapping');
@@ -673,6 +708,43 @@
                 method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: params
             });
         }
+
+        async function clearSection(sectionId){
+            let res;
+            try {
+                const params = new URLSearchParams();
+                params.set('sectionId', sectionId);
+                // основной эндпоинт
+                res = await api('/cart/sections/clear', {
+                    method:'POST',
+                    headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+                    body: params
+                });
+            } catch (_) {
+                // фолбэк-роут
+                res = await api(`/cart/sections/${sectionId}/clear`, { method:'POST' });
+            }
+
+            // если бек вернул список удалённых — зачистим UI
+            const removed = (res && res.removed) ? res.removed : [];
+            removed.forEach(pid => {
+                const row = productIndex[pid]?.row;
+                if (row && row.parentElement) row.parentElement.removeChild(row);
+                delete productIndex[pid];
+                delete mapping[pid];
+            });
+
+            sanitizeMapping();
+            await reloadMapping();   // добираем актуальную мапу с бэка (на всякий случай)
+            await reloadTree();
+
+            updateFolderContents();
+            recalcSummary();
+            updateSelectionUI();
+            filterRows();
+        }
+
+
 
         function fillRowFolderSelects(){
             qsa('tr[data-product-id]', cartTbody).forEach(tr=>{

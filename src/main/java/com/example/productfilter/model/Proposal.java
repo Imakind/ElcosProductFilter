@@ -26,6 +26,11 @@ public class Proposal {
     private String sessionId;
     private String clientName;
 
+    public void addItem(ProposalItem item) {
+        if (item == null) return;
+        item.setProposal(this);
+        this.items.add(item);
+    }
 
     public String getSessionId() {
         return sessionId;

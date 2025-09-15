@@ -10,16 +10,16 @@ import java.util.concurrent.atomic.AtomicLong;
 @RequestMapping("/cart/sections")
 public class CartSectionController {
 
-    // ======= Хранилища в сессии =======
-    private static final String SECTIONS = "sections";             // Map<Long, String>   (id -> name)
-    private static final String SECTION_PARENT = "sectionParent";  // Map<Long, Long>     (id -> parentId)
-    private static final String PRODUCT_SECTION = "productSection";// Map<Integer, Long>  (productId -> sectionId)
+    // ======= Ключи в сессии =======
+    private static final String SECTIONS = "sections";            // Map<Long, String>   (id -> name)
+    private static final String SECTION_PARENT = "sectionParent"; // Map<Long, Long>     (id -> parentId)
+    private static final String PRODUCT_SECTION = "productSection";// Map<Integer, Long> (productId -> sectionId)
     private static final AtomicLong SEQ = new AtomicLong(1L);
 
-    // DTO для дерева
-    public record Node(Long id, String name, List<Node> children) {}
+    // Узел дерева
+    public record Node(Long id, String name, List<Node> children) { }
 
-    // ------- ensure* -------
+    // ======= Хелперы для сессии =======
     @SuppressWarnings("unchecked")
     private Map<Long,String> sections(HttpSession s) {
         Map<Long,String> map = (Map<Long,String>) s.getAttribute(SECTIONS);
@@ -36,7 +36,7 @@ public class CartSectionController {
         Map<Long,Long> map = (Map<Long,Long>) s.getAttribute(SECTION_PARENT);
         if (map == null) {
             map = new HashMap<>();
-            map.put(1L, null); // у корня нет родителя
+            map.put(1L, null); // корень без родителя
             s.setAttribute(SECTION_PARENT, map);
         }
         return map;
@@ -57,37 +57,55 @@ public class CartSectionController {
         return Math.max(max + 1, SEQ.incrementAndGet());
     }
 
-    // ======= Существующие эндпоинты (совместимость) =======
+    // ======= Эндпоинты =======
 
-    // Плоский список (как раньше)
+    /** Современный список: id, name, parentId (рекомендую использовать его на фронте) */
     @GetMapping
-    public Map<Long,String> list(HttpSession s) {
+    public List<Map<String, Object>> listWithParents(HttpSession s) {
+        Map<Long, String> sec = sections(s);
+        Map<Long, Long> parents = sectionParent(s);
+
+        List<Map<String, Object>> out = new ArrayList<>(sec.size());
+        for (Map.Entry<Long, String> e : sec.entrySet()) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", e.getKey());
+            m.put("name", e.getValue());
+            m.put("parentId", parents.get(e.getKey()));
+            out.add(m);
+        }
+        return out;
+    }
+
+    /** Старый плоский список (для обратной совместимости) */
+    @GetMapping("/flat")
+    public Map<Long,String> flat(HttpSession s) {
         return sections(s);
     }
 
-    // Привязка productId -> sectionId
+    /** Привязка productId -> sectionId */
     @GetMapping("/mapping")
     public Map<Integer,Long> mapping(HttpSession s) {
         return productSection(s);
     }
 
-    // Создать раздел (теперь с необязательным parentId)
+    /** Создать раздел (опционально указать parentId, иначе — корень 1) */
     @PostMapping
     public Map<String,Object> create(@RequestParam String name,
                                      @RequestParam(required = false) Long parentId,
                                      HttpSession s) {
         Map<Long,String> sec = sections(s);
         Map<Long,Long> parents = sectionParent(s);
-        long id = nextId(s);
 
-        Long p = (parentId != null ? parentId : 1L);
-        if (!sec.containsKey(p)) p = 1L;
+        Long p = (parentId != null && sec.containsKey(parentId)) ? parentId : 1L;
+        long id = nextId(s);
 
         sec.put(id, name);
         parents.put(id, p);
+
         return Map.of("id", id, "name", name, "parentId", p);
     }
 
+    /** Переименовать раздел */
     @PutMapping("/{id}")
     public Map<String,Object> rename(@PathVariable Long id, @RequestParam String name, HttpSession s) {
         Map<Long,String> sec = sections(s);
@@ -95,7 +113,7 @@ public class CartSectionController {
         return Map.of("ok", true);
     }
 
-    // Удалить: детей «поднимаем» к родителю, товары — тоже к родителю
+    /** Удалить раздел: дети и товары перепривязываются к его родителю */
     @DeleteMapping("/{id}")
     public Map<String,Object> delete(@PathVariable Long id, HttpSession s) {
         if (Objects.equals(id, 1L))
@@ -108,14 +126,14 @@ public class CartSectionController {
         Long parent = parents.get(id);
         if (parent == null) parent = 1L;
 
-        // перепривязываем детей к родителю удаляемого
+        // перепривязка детей
         for (Map.Entry<Long,Long> e : new ArrayList<>(parents.entrySet())) {
             if (Objects.equals(e.getValue(), id)) {
                 parents.put(e.getKey(), parent);
             }
         }
 
-        // перепривязываем товары к родителю удаляемого
+        // перепривязка товаров
         Map<Integer, Long> ps = productSection(s);
         for (Map.Entry<Integer, Long> e : ps.entrySet()) {
             if (Objects.equals(e.getValue(), id)) {
@@ -123,13 +141,12 @@ public class CartSectionController {
             }
         }
 
-        // удаляем сам раздел
         parents.remove(id);
         sec.remove(id);
         return Map.of("ok", true);
     }
 
-    // Назначить товары в раздел
+    /** Назначить товары в раздел */
     @PostMapping("/assign")
     public Map<String,Object> assign(@RequestParam Long sectionId,
                                      @RequestParam("productIds") List<Integer> productIds,
@@ -141,61 +158,47 @@ public class CartSectionController {
         return Map.of("ok", true);
     }
 
-    // ======= Новые эндпоинты для ИЕРАРХИИ =======
-
-    // Дерево
     @GetMapping("/tree")
     public List<Node> tree(HttpSession s) {
         Map<Long,String> sec = sections(s);
         Map<Long,Long> parents = sectionParent(s);
 
-        // подготавливаем все узлы
         Map<Long, Node> nodes = new LinkedHashMap<>();
         for (Map.Entry<Long,String> e : sec.entrySet()) {
             nodes.put(e.getKey(), new Node(e.getKey(), e.getValue(), new ArrayList<>()));
         }
 
-        // строим дерево
         List<Node> roots = new ArrayList<>();
         for (Map.Entry<Long, Node> e : nodes.entrySet()) {
             Long id = e.getKey();
             Node node = e.getValue();
             Long p = parents.get(id);
-
             if (p == null) {
-                // корневой узел
                 roots.add(node);
             } else {
                 Node parent = nodes.get(p);
-                if (parent != null) {
-                    parent.children().add(node);
-                } else {
-                    // на случай «битого» parentId — считаем корневым
-                    roots.add(node);
-                }
+                if (parent != null) parent.children().add(node);
+                else roots.add(node);
             }
-        }
-
-        // гарантируем наличие корня «Общий»
-        if (roots.stream().noneMatch(n -> Objects.equals(n.id(), 1L)) && nodes.containsKey(1L)) {
-            roots.add(0, nodes.get(1L));
         }
         return roots;
     }
 
-    // Переместить папку в другую папку
+
+
+    /** Переместить раздел в другой раздел (с защитой от циклов) */
     @PostMapping("/move")
     public Map<String,Object> move(@RequestParam Long sectionId,
                                    @RequestParam Long newParentId,
                                    HttpSession s) {
         if (Objects.equals(sectionId, 1L))
             return Map.of("ok", false, "msg", "Нельзя перемещать «Общий»");
+
         Map<Long,String> sec = sections(s);
         Map<Long,Long> parents = sectionParent(s);
         if (!sec.containsKey(sectionId) || !sec.containsKey(newParentId))
             return Map.of("ok", false, "msg", "Раздел не найден");
 
-        // защита: нельзя сделать цикл (перенос в своего потомка)
         if (isDescendant(newParentId, sectionId, parents)) {
             return Map.of("ok", false, "msg", "Нельзя переместить раздел внутрь самого себя");
         }
@@ -211,4 +214,65 @@ public class CartSectionController {
         }
         return false;
     }
+
+    /** Явно сменить родителя (если удобно на фронте) */
+    @PostMapping("/set-parent")
+    public Map<String,Object> setSectionParent(@RequestParam("sectionId") Long sectionId,
+                                               @RequestParam(value = "parentId", required = false) Long parentId,
+                                               HttpSession s) {
+        Map<Long, String> sec = sections(s);
+        Map<Long, Long> parents = sectionParent(s);
+        if (!sec.containsKey(sectionId)) return Map.of("ok", false, "msg", "Неизвестная секция");
+        if (parentId != null && !sec.containsKey(parentId)) return Map.of("ok", false, "msg", "Неизвестный родитель");
+        if (Objects.equals(sectionId, 1L)) return Map.of("ok", false, "msg", "Нельзя менять родителя «Общий»");
+        if (parentId != null && isDescendant(parentId, sectionId, parents))
+            return Map.of("ok", false, "msg", "Нельзя сделать цикл");
+        parents.put(sectionId, parentId == null ? 1L : parentId);
+        return Map.of("ok", true);
+    }
+
+    @PostMapping("/clear")
+    public Map<String,Object> clearSection(@RequestParam Long sectionId, HttpSession s) {
+        return doClearSection(sectionId, s);
+    }
+
+    @PostMapping("/{id}/clear")
+    public Map<String,Object> clearSectionByPath(@PathVariable("id") Long id, HttpSession s) {
+        return doClearSection(id, s);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String,Object> doClearSection(Long sectionId, HttpSession s) {
+        Map<Long,String> sec = sections(s);
+        if (sectionId == null || !sec.containsKey(sectionId)) {
+            return Map.of("ok", false, "msg", "Раздел не найден");
+        }
+
+        // Текущая корзина и коэффициенты в сессии
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) s.getAttribute("cart");
+        Map<Integer, Double> coeff = (Map<Integer, Double>) s.getAttribute("coefficientMap");
+        Map<Integer, Long> ps = productSection(s); // productId -> sectionId (может не содержать id => считаем 1L)
+
+        if (cart == null || cart.isEmpty()) {
+            return Map.of("ok", true, "removed", List.of());
+        }
+
+        List<Integer> removed = new ArrayList<>();
+
+        // Чистим ТОЛЬКО товары из этой папки (без рекурсии по подпапкам)
+        for (Integer pid : new ArrayList<>(cart.keySet())) {
+            Long sid = ps.get(pid);
+            if (sid == null) sid = 1L;          // не задано => «Общий»
+            if (Objects.equals(sid, sectionId)) {
+                cart.remove(pid);
+                if (coeff != null) coeff.remove(pid);
+                ps.remove(pid);                 // убираем и маппинг папки
+                removed.add(pid);
+            }
+        }
+
+        return Map.of("ok", true, "removed", removed);
+    }
+
+
 }
