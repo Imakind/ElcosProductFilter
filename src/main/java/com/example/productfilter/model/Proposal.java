@@ -17,6 +17,7 @@ public class Proposal {
     private String fileType; // pdf / excel
     private String filePath;
     private Double totalSum;
+    private String createdBy;     // логин пользователя
 
     private LocalDateTime timestamp = LocalDateTime.now();
 
@@ -96,6 +97,22 @@ public class Proposal {
 
     public void setTimestamp(LocalDateTime timestamp) {
         this.timestamp = timestamp;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(String createdBy) {
+        this.createdBy = createdBy;
+    }
+
+    public String getClientName() {
+        return clientName;
+    }
+
+    public void setClientName(String clientName) {
+        this.clientName = clientName;
     }
 
     public String getFormattedTimestamp() {

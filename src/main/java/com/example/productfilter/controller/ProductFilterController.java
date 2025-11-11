@@ -1,24 +1,25 @@
-
 package com.example.productfilter.controller;
 
 import com.example.productfilter.dto.ProposalHistoryView;
 import com.example.productfilter.model.*;
 import com.example.productfilter.repository.*;
+import com.example.productfilter.service.ExcelImportWithSmartParserService;
 import com.example.productfilter.service.ProposalService;
-import com.lowagie.text.*;
-import com.lowagie.text.Font;
-import com.lowagie.text.pdf.PdfPCell;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.util.CellRangeAddress;
-import org.springframework.core.io.Resource;
+import com.example.productfilter.util.FileNames;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -27,75 +28,50 @@ import org.springframework.stereotype.Controller;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import com.lowagie.text.pdf.PdfWriter;
-import com.lowagie.text.pdf.PdfPTable;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
-
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.text.DecimalFormat;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.List;
+import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.web.servlet.mvc.support.RedirectAttributes;
-
-import org.springframework.web.multipart.MultipartFile;
-import com.example.productfilter.service.ExcelImportWithSmartParserService;
-
-import java.util.regex.Pattern;
-import java.util.function.Function;
-import static java.util.stream.Collectors.*;
-
-import java.util.regex.Pattern;
-import java.util.regex.Matcher;
-
-
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
+import static java.util.stream.Collectors.toSet;
 
 @Controller
 public class ProductFilterController {
-    @Autowired
-    private BrandRepository brandRepo;
+    @Autowired private BrandRepository brandRepo;
     @Autowired private CategoryRepository categoryRepo;
     @Autowired private ProductRepository productRepo;
     @Autowired private ProductParameterRepository parameterRepo;
-    @Autowired
-    private ProductCategoriesRepository productCategoriesRepo;
-    @Autowired
-    private ProposalRepository proposalRepo;
-    private final ProposalService proposalService;
+    @Autowired private ProductCategoriesRepository productCategoriesRepo;
+    @Autowired private ProposalRepository proposalRepo;
+    @Autowired private ProposalSectionRepository proposalSectionRepo;
 
+    private final ProposalService proposalService;
     private final ExcelImportWithSmartParserService excelImportWithSmartParserService;
 
-    @Autowired
-    private ProposalSectionRepository proposalSectionRepo;
-
     private static final String PRODUCT_SECTION_QTY = "productSectionQty"; // Map<Integer, Map<Long,Integer>>
+    private static final Logger logger = LoggerFactory.getLogger(ProductFilterController.class);
 
-
-
-    public ProductFilterController(
-            ProposalService proposalService,
-            ExcelImportWithSmartParserService excelImportWithSmartParserService
-    ) {
+    public ProductFilterController(ProposalService proposalService,
+                                   ExcelImportWithSmartParserService excelImportWithSmartParserService) {
         this.proposalService = proposalService;
         this.excelImportWithSmartParserService = excelImportWithSmartParserService;
     }
-
 
     @GetMapping("/")
     public String index(Model model, HttpSession session) {
@@ -107,44 +83,35 @@ public class ProductFilterController {
         model.addAttribute("param3List", parameterRepo.findDistinctParam3());
         model.addAttribute("param4List", parameterRepo.findDistinctParam4());
         model.addAttribute("param5List", parameterRepo.findDistinctParam5());
-
         model.addAttribute("filterParams", new HashMap<String, Object>());
 
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
         model.addAttribute("cartCount", cart != null ? cart.values().stream().mapToInt(i -> i).sum() : 0);
+
         List<Proposal> proposalHistory = proposalRepo.findAllByOrderByTimestampDesc();
         model.addAttribute("proposalHistory", proposalHistory);
-
         return "filter";
     }
-
 
     @GetMapping("/filter/options")
     @ResponseBody
     public Map<String, Object> getOptionsByBrand(@RequestParam("brandId") Integer brandId) {
         Map<String, Object> response = new HashMap<>();
-
         List<Product> products = productRepo.findByBrand_BrandId(brandId);
 
-        // Категории этих продуктов
         Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
         List<Category> allCategories = categoryRepo.findByProducts(productIds);
-
         List<Category> parentCategories = allCategories.stream()
                 .filter(c -> c.getParentCategoryId() == null)
                 .collect(Collectors.toList());
 
-
-        // Параметры этих продуктов
         List<ProductParameters> params = parameterRepo.findByProduct_ProductIdIn(productIds);
         Set<String> param1Set = params.stream().map(ProductParameters::getParam1).filter(Objects::nonNull).collect(Collectors.toSet());
 
         response.put("groups", parentCategories);
         response.put("param1List", param1Set);
-
         return response;
     }
-
 
     @GetMapping("/filter/groups")
     @ResponseBody
@@ -174,7 +141,6 @@ public class ProductFilterController {
 
         if (groupId != null || subGroupId != null) {
             List<ProductCategories> allRelations = productCategoriesRepo.findAll();
-
             if (groupId != null) {
                 Set<Integer> groupProducts = allRelations.stream()
                         .filter(pc -> groupId.equals(pc.getCategoryId()))
@@ -182,7 +148,6 @@ public class ProductFilterController {
                         .collect(Collectors.toSet());
                 productIds.retainAll(groupProducts);
             }
-
             if (subGroupId != null) {
                 Set<Integer> subGroupProducts = allRelations.stream()
                         .filter(pc -> subGroupId.equals(pc.getCategoryId()))
@@ -193,14 +158,12 @@ public class ProductFilterController {
         }
 
         List<ProductParameters> params = parameterRepo.findByProduct_ProductIdIn(productIds);
-
         Map<String, Set<String>> paramMap = new HashMap<>();
         paramMap.put("param1List", params.stream().map(ProductParameters::getParam1).filter(Objects::nonNull).collect(Collectors.toSet()));
         paramMap.put("param2List", params.stream().map(ProductParameters::getParam2).filter(Objects::nonNull).collect(Collectors.toSet()));
         paramMap.put("param3List", params.stream().map(ProductParameters::getParam3).filter(Objects::nonNull).collect(Collectors.toSet()));
         paramMap.put("param4List", params.stream().map(ProductParameters::getParam4).filter(Objects::nonNull).collect(Collectors.toSet()));
         paramMap.put("param5List", params.stream().map(ProductParameters::getParam5).filter(Objects::nonNull).collect(Collectors.toSet()));
-
         return paramMap;
     }
 
@@ -222,17 +185,12 @@ public class ProductFilterController {
             Model model
     ) {
         String sessionId = session.getId();
-
         int pageSize = 21;
         Pageable pageable = PageRequest.of(page, pageSize);
 
-        // Загружаем все товары
         List<Product> products = productRepo.findAll();
-        Set<Integer> productIds = products.stream()
-                .map(Product::getProductId)
-                .collect(Collectors.toSet());
+        Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
 
-        // Фильтрация по бренду
         if (brandId != null) {
             products = products.stream()
                     .filter(p -> p.getBrand().getBrandId().equals(brandId))
@@ -240,7 +198,6 @@ public class ProductFilterController {
             productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
         }
 
-        // -------------- Фильтрация по ключевому слову -----------------
         if (keyword != null && !keyword.trim().isEmpty()) {
             String lowerKeyword = keyword.toLowerCase();
             products = products.stream()
@@ -248,8 +205,6 @@ public class ProductFilterController {
                     .collect(Collectors.toList());
         }
 
-
-        // Фильтрация по группам/подгруппам
         if (groupId != null || subGroupId != null) {
             List<ProductCategories> links = productCategoriesRepo.findAll();
             if (groupId != null) {
@@ -268,79 +223,42 @@ public class ProductFilterController {
             }
         }
 
-        // Фильтрация по параметрам
         List<ProductParameters> params = parameterRepo.findByProduct_ProductIdIn(productIds);
+        if (param1 != null && !param1.isEmpty()) params = params.stream().filter(p -> param1.equals(p.getParam1())).collect(Collectors.toList());
+        if (param2 != null && !param2.isEmpty()) params = params.stream().filter(p -> param2.equals(p.getParam2())).collect(Collectors.toList());
+        if (param3 != null && !param3.isEmpty()) params = params.stream().filter(p -> param3.equals(p.getParam3())).collect(Collectors.toList());
+        if (param4 != null && !param4.isEmpty()) params = params.stream().filter(p -> param4.equals(p.getParam4())).collect(Collectors.toList());
+        if (param5 != null && !param5.isEmpty()) params = params.stream().filter(p -> param5.equals(p.getParam5())).collect(Collectors.toList());
 
-        if (param1 != null && !param1.isEmpty()) {
-            params = params.stream().filter(p -> param1.equals(p.getParam1())).collect(Collectors.toList());
-        }
-        if (param2 != null && !param2.isEmpty()) {
-            params = params.stream().filter(p -> param2.equals(p.getParam2())).collect(Collectors.toList());
-        }
-        if (param3 != null && !param3.isEmpty()) {
-            params = params.stream().filter(p -> param3.equals(p.getParam3())).collect(Collectors.toList());
-        }
-        if (param4 != null && !param4.isEmpty()) {
-            params = params.stream().filter(p -> param4.equals(p.getParam4())).collect(Collectors.toList());
-        }
-        if (param5 != null && !param5.isEmpty()) {
-            params = params.stream().filter(p -> param5.equals(p.getParam5())).collect(Collectors.toList());
-        }
+        Set<Integer> finalProductIds = !params.isEmpty()
+                ? params.stream().map(p -> p.getProduct().getProductId()).collect(Collectors.toSet())
+                : productIds;
 
-        Set<Integer> finalProductIds;
-        if (!params.isEmpty()) {
-            finalProductIds = params.stream()
-                    .map(p -> p.getProduct().getProductId())
-                    .collect(Collectors.toSet());
-        } else {
-            finalProductIds = productIds;
-        }
+        products = products.stream().filter(p -> finalProductIds.contains(p.getProductId())).collect(Collectors.toList());
 
-        products = products.stream()
-                .filter(p -> finalProductIds.contains(p.getProductId()))
-                .collect(Collectors.toList());
-
-        // --------------- Сортировка ----------------
         if (sort != null && !sort.isEmpty()) {
             String[] sorts = sort.split(",");
-
             for (String s : sorts) {
                 switch (s) {
-                    case "priceAsc":
-                        products.sort(Comparator.comparing(Product::getPrice, Comparator.nullsLast(Double::compareTo)));
-                        break;
-                    case "priceDesc":
-                        products.sort(Comparator.comparing(Product::getPrice, Comparator.nullsLast(Double::compareTo)).reversed());
-                        break;
-                    case "nameAsc":
-                        products.sort(Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER));
-                        break;
-                    case "nameDesc":
-                        products.sort(Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER).reversed());
-                        break;
-                    case "brandAsc":
-                        products.sort(Comparator.comparing(p -> p.getBrand().getBrandName(), String.CASE_INSENSITIVE_ORDER));
-                        break;
-                    case "brandDesc":
-                        products.sort(Comparator.comparing((Product p) -> p.getBrand().getBrandName(), String.CASE_INSENSITIVE_ORDER).reversed());
-                        break;
+                    case "priceAsc" -> products.sort(Comparator.comparing(Product::getPrice, Comparator.nullsLast(Double::compareTo)));
+                    case "priceDesc" -> products.sort(Comparator.comparing(Product::getPrice, Comparator.nullsLast(Double::compareTo)).reversed());
+                    case "nameAsc" -> products.sort(Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER));
+                    case "nameDesc" -> products.sort(Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER).reversed());
+                    case "brandAsc" -> products.sort(Comparator.comparing(p -> p.getBrand().getBrandName(), String.CASE_INSENSITIVE_ORDER));
+                    case "brandDesc" -> products.sort(Comparator.comparing((Product p) -> p.getBrand().getBrandName(), String.CASE_INSENSITIVE_ORDER).reversed());
                 }
             }
         }
 
-
-        // --------------- Пагинация вручную ----------------
         int start = (int) pageable.getOffset();
         int end = Math.min((start + pageable.getPageSize()), products.size());
         List<Product> pageContent = start < end ? products.subList(start, end) : List.of();
-
         Page<Product> productPage = new org.springframework.data.domain.PageImpl<>(pageContent, pageable, products.size());
 
         model.addAttribute("products", productPage.getContent());
         model.addAttribute("currentPage", page);
         model.addAttribute("totalPages", productPage.getTotalPages());
 
-        // Передаем все фильтры обратно на страницу
         model.addAttribute("brands", brandRepo.findAll());
         model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
         model.addAttribute("subGroups", groupId != null ? categoryRepo.findByParentCategoryId(groupId) : List.of());
@@ -364,26 +282,18 @@ public class ProductFilterController {
 
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
         model.addAttribute("cartCount", cart != null ? cart.values().stream().mapToInt(i -> i).sum() : 0);
-
         model.addAttribute("quantities", cart != null ? cart : new HashMap<>());
-
 
         session.setAttribute("lastFilters", selectedParams);
 
-
-        // Проверяем AJAX запрос или обычный
         if ("XMLHttpRequest".equals(request.getHeader("X-Requested-With"))) {
             return "fragments/product_list :: productList";
         }
 
         List<ProposalHistoryView> historyList = proposalService.getAllProposals();
         model.addAttribute("proposalHistory", historyList);
-
-
         return "filter";
     }
-
-
 
     @PostMapping("/cart/add")
     @ResponseBody
@@ -401,26 +311,16 @@ public class ProductFilterController {
         ensureProductSection(session).put(productId, sid);
     }
 
-
     @GetMapping("/cart")
     public String viewCart(Model model, HttpSession session) {
         String sessionId = session.getId();
 
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
-
         Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
+        if (cart == null) cart = new HashMap<>();
+        if (coefficientMap == null) coefficientMap = new HashMap<>();
 
-        if (cart == null) {
-            cart = new HashMap<>();
-        }
-        if (coefficientMap == null) {
-            coefficientMap = new HashMap<>();
-        }
-
-        List<Product> products = (cart != null && !cart.isEmpty())
-                ? productRepo.findAllById(cart.keySet())
-                : List.of();
-
+        List<Product> products = (!cart.isEmpty()) ? productRepo.findAllById(cart.keySet()) : List.of();
 
         Map<Integer, Double> unitPriceMap = new HashMap<>();
         for (Product p : products) {
@@ -437,39 +337,25 @@ public class ProductFilterController {
         model.addAttribute("quantities", cart);
         model.addAttribute("coefficientMap", coefficientMap);
 
-        //  Оптимизированная загрузка категорий
-        Set<Integer> productIds = products.stream()
-                .map(Product::getProductId)
-                .collect(Collectors.toSet());
-
+        Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
         List<ProductCategories> links = productCategoriesRepo.findByProductIdIn(productIds);
-        Set<Integer> categoryIds = links.stream()
-                .map(ProductCategories::getCategoryId)
-                .collect(Collectors.toSet());
-
+        Set<Integer> categoryIds = links.stream().map(ProductCategories::getCategoryId).collect(Collectors.toSet());
         List<Category> allCategories = categoryRepo.findAllById(categoryIds);
-        Map<Integer, Category> categoryMap = allCategories.stream()
-                .collect(Collectors.toMap(Category::getCategoryId, c -> c));
+        Map<Integer, Category> categoryMap = allCategories.stream().collect(Collectors.toMap(Category::getCategoryId, c -> c));
 
         Map<Integer, List<Category>> productIdToCategories = new HashMap<>();
         for (ProductCategories link : links) {
             Integer productId = link.getProductId();
             Integer categoryId = link.getCategoryId();
-
             Category category = categoryMap.get(categoryId);
             if (category != null) {
-                productIdToCategories
-                        .computeIfAbsent(productId, k -> new ArrayList<>())
-                        .add(category);
+                productIdToCategories.computeIfAbsent(productId, k -> new ArrayList<>()).add(category);
             }
         }
-
         model.addAttribute("productCategoriesMap", productIdToCategories);
 
         Map<String, Object> lastFilters = (Map<String, Object>) session.getAttribute("lastFilters");
         model.addAttribute("filterParams", lastFilters != null ? lastFilters : new HashMap<>());
-
-        model.addAttribute("quantities", cart);
 
         double totalSum = 0.0;
         for (Product product : products) {
@@ -495,9 +381,7 @@ public class ProductFilterController {
                                   @RequestParam("coefficient") Double coefficient,
                                   HttpSession session) {
         Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
-        if (coefficientMap == null) {
-            coefficientMap = new HashMap<>();
-        }
+        if (coefficientMap == null) coefficientMap = new HashMap<>();
         coefficientMap.put(productId, coefficient);
         session.setAttribute("coefficientMap", coefficientMap);
     }
@@ -518,8 +402,6 @@ public class ProductFilterController {
         }
         session.setAttribute("cart", cart);
     }
-
-
 
     @PostMapping("/cart/confirm")
     public String confirmCart(HttpSession session, Model model) {
@@ -548,7 +430,7 @@ public class ProductFilterController {
 
         List<ProductParameters> parameters = parameterRepo.findByProduct_ProductIdIn(cart.keySet());
         Map<Integer, ProductParameters> paramMap = parameters.stream()
-                .collect(Collectors.toMap(p -> p.getProduct().getProductId(), p -> p));
+                .collect(Collectors.toMap(p -> p.getProduct().getProductId(), Function.identity()));
 
         model.addAttribute("products", products);
         model.addAttribute("quantities", cart);
@@ -559,7 +441,6 @@ public class ProductFilterController {
         model.addAttribute("totalSum", totalSum);
         model.addAttribute("totalQuantity", cart.values().stream().mapToInt(i -> i).sum());
 
-        // Сохраняем в сессию
         session.setAttribute("proposalCart", new HashMap<>(cart));
         session.setAttribute("proposalCoefficients", new HashMap<>(coefficientMap));
         session.setAttribute("proposalProducts", products);
@@ -568,198 +449,31 @@ public class ProductFilterController {
         Map<String, Object> lastFilters = (Map<String, Object>) session.getAttribute("lastFilters");
         model.addAttribute("filterParams", lastFilters != null ? lastFilters : new HashMap<>());
 
-
         return "proposal";
     }
 
-
-
-    @GetMapping("/proposal/pdf")
-    public void downloadProposalPdf(HttpServletResponse response, HttpSession session) throws IOException {
-        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("proposalCart");
-        List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
-        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("proposalCoefficients");
-
-        if (cart == null || products == null || cart.isEmpty()) {
-            response.sendRedirect("/cart");
-            return;
-        }
-
-        if (coefficientMap == null) coefficientMap = new HashMap<>();
-
-        response.setContentType("application/pdf");
-        response.setHeader("Content-Disposition", "attachment; filename=proposal.pdf");
-
-        try (OutputStream out = response.getOutputStream()) {
-            Document document = new Document();
-            PdfWriter.getInstance(document, out);
-            document.open();
-
-            Font titleFont = new Font(Font.HELVETICA, 16, Font.BOLD);
-            Font headerFont = new Font(Font.HELVETICA, 11, Font.BOLD);
-            Font cellFont = new Font(Font.HELVETICA, 10);
-            Font totalBold = new Font(Font.HELVETICA, 10, Font.BOLD);
-
-            document.add(new Paragraph("Коммерческое предложение", titleFont));
-            document.add(new Paragraph(" "));
-
-            PdfPTable table = new PdfPTable(7);
-            table.setWidthPercentage(100);
-            table.setWidths(new float[]{1.2f, 5.5f, 3f, 2.5f, 1.5f, 2.5f, 2.5f});
-
-            // Заголовки
-            Stream.of("№", "Наименование", "Артикул", "Бренд", "Кол-во", "Цена", "Сумма").forEach(h -> {
-                PdfPCell cell = new PdfPCell(new Phrase(h, headerFont));
-                cell.setHorizontalAlignment(Element.ALIGN_CENTER);
-                cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-                cell.setPadding(5f);
-                table.addCell(cell);
-            });
-
-            double totalSum = 0.0;
-            int totalQty = 0;
-            int index = 1;
-
-            for (Product product : products) {
-                int qty = cart.getOrDefault(product.getProductId(), 1);
-                double basePrice = product.getPrice() != null ? product.getPrice() : 0.0;
-                double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
-                double finalPrice = basePrice * coeff;
-                double sum = finalPrice * qty;
-                totalSum += sum;
-                totalQty += qty;
-
-                table.addCell(makeCell(String.valueOf(index++), cellFont, Element.ALIGN_CENTER));
-                table.addCell(makeCell(product.getName(), cellFont, Element.ALIGN_LEFT));
-                table.addCell(makeCell(product.getArticleCode(), cellFont, Element.ALIGN_LEFT));
-                table.addCell(makeCell(product.getBrand().getBrandName(), cellFont, Element.ALIGN_CENTER));
-                table.addCell(makeCell(String.valueOf(qty), cellFont, Element.ALIGN_CENTER));
-                table.addCell(makeCell(String.format("%,.1f", finalPrice), cellFont, Element.ALIGN_CENTER));
-                table.addCell(makeCell(String.format("%,.1f", sum), cellFont, Element.ALIGN_CENTER));
-            }
-
-            // Итого
-            PdfPCell labelCell = new PdfPCell(new Phrase("Итого:", totalBold));
-            labelCell.setColspan(4);
-            labelCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-            labelCell.setPadding(5f);
-            table.addCell(labelCell);
-
-            table.addCell(makeCell(String.valueOf(totalQty), cellFont, Element.ALIGN_CENTER));
-            table.addCell(makeCell("", cellFont, Element.ALIGN_CENTER));
-            table.addCell(makeCell(String.format("%,.1f", totalSum), totalBold, Element.ALIGN_CENTER));
-
-            document.add(table);
-            document.close();
-        } catch (DocumentException e) {
-            throw new IOException("Ошибка при создании PDF", e);
-        }
-    }
-
-    private PdfPCell makeCell(String text, Font font, int alignment) {
-        PdfPCell cell = new PdfPCell(new Phrase(text, font));
-        cell.setHorizontalAlignment(alignment);
-        cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        cell.setPadding(5f);
-        return cell;
-    }
-
-    @PreAuthorize("hasRole('ADMIN')")
-    @PostMapping("/admin/add-product")
-    public String addProduct(ProductForm productForm, Model model) {
-        // Проверяем, существует ли товар с таким же артикулом
-        if (productRepo.existsByArticleCode(productForm.getArticleCode())) {
-            model.addAttribute("brands", brandRepo.findAll());
-            model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
-            model.addAttribute("subGroups", List.of());
-            model.addAttribute("productForm", productForm);
-            model.addAttribute("error", "Товар с таким артикулом уже существует!");
-            return "add_product"; // вернёмся обратно на страницу с ошибкой
-        }
-
-        // Сохраняем товар
-        Product product = new Product();
-        product.setName(productForm.getName());
-        product.setPrice(productForm.getPrice() != null ? productForm.getPrice() : 0.0);
-        product.setBrand(brandRepo.findById(productForm.getBrandId()).orElse(null));
-        product.setArticleCode(productForm.getArticleCode());
-        product = productRepo.save(product);
-
-        // Параметры
-        ProductParameters params = new ProductParameters();
-        params.setProduct(product);
-        params.setParam1(productForm.getParam1());
-        params.setParam2(productForm.getParam2());
-        params.setParam3(productForm.getParam3());
-        params.setParam4(productForm.getParam4());
-        params.setParam5(productForm.getParam5());
-        parameterRepo.save(params);
-
-        // Категории
-        if (productForm.getGroupId() != null) {
-            ProductCategories pc = new ProductCategories();
-            pc.setProductId(product.getProductId());
-            pc.setCategoryId(productForm.getGroupId());
-            productCategoriesRepo.save(pc);
-        }
-        if (productForm.getSubGroupId() != null) {
-            ProductCategories pc = new ProductCategories();
-            pc.setProductId(product.getProductId());
-            pc.setCategoryId(productForm.getSubGroupId());
-            productCategoriesRepo.save(pc);
-        }
-
-        return "redirect:/";
-    }
-
-    @PreAuthorize("hasRole('ADMIN')")
-    @GetMapping("/admin/add-product")
-    public String showAddProductForm(Model model) {
-        model.addAttribute("brands", brandRepo.findAll());
-        model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
-        model.addAttribute("subGroups", List.of());
-        model.addAttribute("productForm", new ProductForm());
-        return "add_product";
-    }
-
-
-
-
-    @PostMapping("/cart/update")
-    @ResponseBody
-    public void updateCart(@RequestParam("productId") Integer productId,
-                           @RequestParam("quantity") Integer quantity,
-                           HttpSession session) {
-        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
-        if (cart == null) cart = new HashMap<>();
-        if (quantity <= 0) {
-            cart.remove(productId);
-        } else {
-            cart.put(productId, quantity);
-        }
-        session.setAttribute("cart", cart);
-    }
-
+    // ===== УДАЛЁН эндпойнт /proposal/pdf и все PDF-зависимости =====
 
     @GetMapping("/proposal/excel")
     public void downloadProposalExcel(HttpServletResponse response, HttpSession session) throws IOException {
-        // Сначала получаем данные из сессии
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("proposalCart");
         List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
         Double totalSum = (Double) session.getAttribute("proposalTotal");
-
         Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("proposalCoefficients");
         if (coefficientMap == null) coefficientMap = new HashMap<>();
 
-
-        // Проверка на null
         if (cart == null || products == null || cart.isEmpty() || totalSum == null) {
             response.sendRedirect("/proposal");
             return;
         }
 
+        // имя файла сметы по умолчанию
+        String projectName = Optional.ofNullable((String) session.getAttribute("projectName")).orElse("Проект");
+        String user = FileNames.currentUser();
+        String fnameXlsx = FileNames.smeta(projectName, user); // ожидается ".xlsx" внутри
+
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        response.setHeader("Content-Disposition", "attachment; filename=smeta.xlsx");
+        response.setHeader("Content-Disposition", rfc5987ContentDisposition(fnameXlsx));
 
         try (Workbook workbook = new XSSFWorkbook(); OutputStream out = response.getOutputStream()) {
             Sheet sheet = workbook.createSheet("Смета");
@@ -768,15 +482,10 @@ public class ProductFilterController {
             CellStyle priceStyle = workbook.createCellStyle();
             priceStyle.setDataFormat(format.getFormat("# ##0.00"));
 
-
-            // Заголовки
             Row header = sheet.createRow(0);
             String[] headers = {"№", "Наименование затрат", "Ед. изм.", "Количество", "Цена, тг", "Сумма, тг"};
-            for (int i = 0; i < headers.length; i++) {
-                header.createCell(i).setCellValue(headers[i]);
-            }
+            for (int i = 0; i < headers.length; i++) header.createCell(i).setCellValue(headers[i]);
 
-            // Содержимое
             int rowIdx = 1;
             double total = 0.0;
 
@@ -789,12 +498,12 @@ public class ProductFilterController {
                 double sum = qty * finalPrice;
                 total += sum;
 
-
                 Row row = sheet.createRow(rowIdx++);
                 row.createCell(0).setCellValue(i + 1);
                 row.createCell(1).setCellValue(product.getName());
                 row.createCell(2).setCellValue("шт.");
                 row.createCell(3).setCellValue(qty);
+
                 Cell finalPriceCell = row.createCell(4);
                 finalPriceCell.setCellValue(finalPrice);
                 finalPriceCell.setCellStyle(priceStyle);
@@ -802,10 +511,8 @@ public class ProductFilterController {
                 Cell sumCell = row.createCell(5);
                 sumCell.setCellValue(sum);
                 sumCell.setCellStyle(priceStyle);
-
             }
 
-            // Итоговая строка
             Row totalRow = sheet.createRow(rowIdx);
             totalRow.createCell(4).setCellValue("Итого:");
             Cell totalCell = totalRow.createCell(5);
@@ -816,119 +523,82 @@ public class ProductFilterController {
         }
     }
 
-    @PostMapping("/cart/clear")
-    @ResponseBody
-    public void clearCart(HttpSession session) {
-        session.removeAttribute("cart");
-        session.removeAttribute("coefficientMap");
-        Map<Long, String> sec = new LinkedHashMap<>();
-        sec.put(1L, "Общий"); // корневой раздел по умолчанию
-        session.setAttribute("sections", sec);
-        session.setAttribute("productSection", new HashMap<Integer, Long>());
-        Map<Long, Long> p = new HashMap<>();
-        p.put(1L, null);
-        session.setAttribute("sectionParent", p);
-        session.setAttribute("sectionSeq", 2L); // удобно для фронта
-        session.setAttribute("productSectionQty", new HashMap<Integer, Map<Long,Integer>>());
-    }
-
-
-    @GetMapping("/filter/subgroups/all")
-    @ResponseBody
-    public List<Map<String, Object>> getAllSubGroups() {
-        List<Category> subGroups = categoryRepo.findAllSubGroups(); // те, у кого parentCategoryId != null
-
-        return subGroups.stream().map(sub -> {
-            Map<String, Object> map = new HashMap<>();
-            map.put("categoryId", sub.getCategoryId());
-            map.put("name", sub.getName());
-            map.put("parentCategoryId", sub.getParentCategoryId()); // теперь напрямую
-            return map;
-        }).collect(Collectors.toList());
-    }
-
     @GetMapping("/proposal/excel-kp")
     public void downloadProposalExcelKp(HttpServletResponse response, HttpSession session) throws IOException {
+        String projectName = Optional.ofNullable((String) session.getAttribute("projectName")).orElse("Проект");
+        String user = FileNames.currentUser();
+        String fnameXlsx = FileNames.kpXlsx(projectName, user); // "Elcos КП <Проект> <ДД.ММ.ГГГГ> <user>.xlsx"
+
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("proposalCart");
         List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
         Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("proposalCoefficients");
-
-        if (cart == null || products == null || cart.isEmpty()) {
-            response.sendRedirect("/cart");
-            return;
-        }
-
+        if (cart == null || products == null || cart.isEmpty()) { response.sendRedirect("/cart"); return; }
         if (coefficientMap == null) coefficientMap = new HashMap<>();
 
-        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        response.setHeader("Content-Disposition", "attachment; filename=proposal.xlsx");
-
-        try (Workbook workbook = new XSSFWorkbook(); OutputStream out = response.getOutputStream()) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (Workbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("Коммерческое предложение");
             sheet.setDefaultColumnWidth(20);
 
+            DataFormat df = workbook.createDataFormat();
+            CellStyle num1 = workbook.createCellStyle(); num1.setDataFormat(df.getFormat("# ##0.0"));
+            CellStyle int0 = workbook.createCellStyle(); int0.setDataFormat(df.getFormat("# ##0"));
 
-            CellStyle cellStyle = workbook.createCellStyle();
-            cellStyle.setAlignment(HorizontalAlignment.CENTER);
-
-            // Заголовки
             Row header = sheet.createRow(0);
-            String[] columns = {"№", "Наименование", "Артикул", "Бренд", "Кол-во", "Цена", "Сумма"};
-            for (int i = 0; i < columns.length; i++) {
-                Cell cell = header.createCell(i);
-                cell.setCellValue(columns[i]);
-            }
+            String[] columns = {"№","Наименование","Артикул","Бренд","Кол-во","Цена","Сумма"};
+            for (int i = 0; i < columns.length; i++) header.createCell(i).setCellValue(columns[i]);
 
-            int rowIdx = 1;
-            int index = 1;
-            int totalQty = 0;
+            int rowIdx = 1, index = 1, totalQty = 0;
             double totalSum = 0.0;
 
-            for (Product product : products) {
-                int qty = cart.getOrDefault(product.getProductId(), 1);
-                double basePrice = product.getPrice() != null ? product.getPrice() : 0.0;
-                double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
-                double finalPrice = basePrice * coeff;
-                double sum = finalPrice * qty;
+            for (Product p : products) {
+                int qty = cart.getOrDefault(p.getProductId(), 1);
+                double basePrice = p.getPrice() != null ? p.getPrice() : 0.0;
+                double coeff = coefficientMap.getOrDefault(p.getProductId(), 1.0);
+                double price = basePrice * coeff;
+                double sum = price * qty;
 
-                Row row = sheet.createRow(rowIdx++);
-                row.createCell(0).setCellValue(index++);
-                row.createCell(1).setCellValue(product.getName());
-                row.createCell(2).setCellValue(product.getArticleCode());
-                row.createCell(3).setCellValue(product.getBrand().getBrandName());
-                row.createCell(4).setCellValue(qty);
-                row.createCell(5).setCellValue(finalPrice);
-                row.createCell(6).setCellValue(sum);
+                Row r = sheet.createRow(rowIdx++);
+                r.createCell(0).setCellValue(index++);
+                r.createCell(1).setCellValue(p.getName());
+                r.createCell(2).setCellValue(p.getArticleCode());
+                r.createCell(3).setCellValue(p.getBrand().getBrandName());
+
+                Cell c;
+                c = r.createCell(4); c.setCellValue(qty);   c.setCellStyle(int0);
+                c = r.createCell(5); c.setCellValue(price); c.setCellStyle(num1);
+                c = r.createCell(6); c.setCellValue(sum);   c.setCellStyle(num1);
 
                 totalQty += qty;
                 totalSum += sum;
             }
 
-            // Итого
             Row totalRow = sheet.createRow(rowIdx);
             totalRow.createCell(0).setCellValue("Итого:");
             sheet.addMergedRegion(new CellRangeAddress(rowIdx, rowIdx, 0, 3));
-            totalRow.createCell(4).setCellValue(totalQty);
-            totalRow.createCell(6).setCellValue(totalSum);
+            Cell cq = totalRow.createCell(4); cq.setCellValue(totalQty); cq.setCellStyle(int0);
+            Cell cs = totalRow.createCell(6); cs.setCellValue(totalSum); cs.setCellStyle(num1);
 
-            workbook.write(out);
+            workbook.write(baos);
+        }
+
+        byte[] xlsx = baos.toByteArray();
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setHeader("Content-Disposition", rfc5987ContentDisposition(fnameXlsx));
+        response.setContentLength(xlsx.length);
+
+        try (OutputStream out = response.getOutputStream()) {
+            out.write(xlsx);
         }
     }
-
-
-
 
     @GetMapping("/proposal/download/{filename}")
     @ResponseBody
     public ResponseEntity<Resource> downloadFile(@PathVariable String filename) throws IOException {
         Path file = Paths.get("generated", filename);
-
-        if (!Files.exists(file)) {
-            return ResponseEntity.notFound().build();
-        }
+        if (!Files.exists(file)) return ResponseEntity.notFound().build();
 
         Resource resource = new FileSystemResource(file);
-
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + filename)
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
@@ -938,26 +608,25 @@ public class ProductFilterController {
     public static String formatPrice(Double price) {
         if (price == null) return "0";
         return String.format("%,.1f", price)
-                .replace(',', ' ')  // заменяем запятую-разделитель тысяч на пробел
-                .replace('.', ','); // заменяем точку на запятую (1.5 → 1,5)
+                .replace(',', ' ')
+                .replace('.', ',');
     }
 
     @GetMapping("/cart/excel")
     public void downloadCartExcel(HttpServletResponse response, HttpSession session) throws IOException {
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
         Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
-
-        if (cart == null || cart.isEmpty()) {
-            response.sendRedirect("/cart");
-            return;
-        }
-
+        if (cart == null || cart.isEmpty()) { response.sendRedirect("/cart"); return; }
         if (coefficientMap == null) coefficientMap = new HashMap<>();
 
         List<Product> products = productRepo.findAllById(cart.keySet());
 
+        String projectName = Optional.ofNullable((String) session.getAttribute("projectName")).orElse("Проект");
+        String user = FileNames.currentUser();
+        String fname = FileNames.smeta(projectName, user); // ".xlsx" внутри
+
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        response.setHeader("Content-Disposition", "attachment; filename=smeta.xlsx");
+        response.setHeader("Content-Disposition", rfc5987ContentDisposition(fname));
 
         try (Workbook workbook = new XSSFWorkbook(); OutputStream out = response.getOutputStream()) {
             Sheet sheet = workbook.createSheet("Смета");
@@ -965,15 +634,10 @@ public class ProductFilterController {
             CellStyle style = workbook.createCellStyle();
             style.setDataFormat(format.getFormat("# ##0.0"));
 
-            // Заголовки
             Row header = sheet.createRow(0);
-            String[] cols = {
-                    "№", "Наименование", "Артикул", "Бренд", "Кол-во",
-                    "Базовая цена", "Сумма базовая", "Коэф.", "Цена", "Сумма", "Маржа"
-            };
-            for (int i = 0; i < cols.length; i++) {
-                header.createCell(i).setCellValue(cols[i]);
-            }
+            String[] cols = {"№", "Наименование", "Артикул", "Бренд", "Кол-во",
+                    "Базовая цена", "Сумма базовая", "Коэф.", "Цена", "Сумма", "Маржа"};
+            for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
 
             int rowIdx = 1;
             int index = 1;
@@ -998,36 +662,18 @@ public class ProductFilterController {
                 row.createCell(col++).setCellValue(product.getBrand().getBrandName());
                 row.createCell(col++).setCellValue(qty);
 
-                Cell basePriceCell = row.createCell(col++);
-                basePriceCell.setCellValue(basePrice);
-                basePriceCell.setCellStyle(style);
-
-                Cell baseSumCell = row.createCell(col++);
-                baseSumCell.setCellValue(baseSum);
-                baseSumCell.setCellStyle(style);
-
-                Cell coeffCell = row.createCell(col++);
-                coeffCell.setCellValue(coeff);
-                coeffCell.setCellStyle(style);
-
-                Cell unitPriceCell = row.createCell(col++);
-                unitPriceCell.setCellValue(unitPrice);
-                unitPriceCell.setCellStyle(style);
-
-                Cell finalSumCell = row.createCell(col++);
-                finalSumCell.setCellValue(finalSum);
-                finalSumCell.setCellStyle(style);
-
-                Cell marginCell = row.createCell(col++);
-                marginCell.setCellValue(margin);
-                marginCell.setCellStyle(style);
+                Cell basePriceCell = row.createCell(col++); basePriceCell.setCellValue(basePrice); basePriceCell.setCellStyle(style);
+                Cell baseSumCell   = row.createCell(col++); baseSumCell.setCellValue(baseSum);     baseSumCell.setCellStyle(style);
+                Cell coeffCell     = row.createCell(col++); coeffCell.setCellValue(coeff);         coeffCell.setCellStyle(style);
+                Cell unitPriceCell = row.createCell(col++); unitPriceCell.setCellValue(unitPrice); unitPriceCell.setCellStyle(style);
+                Cell finalSumCell  = row.createCell(col++); finalSumCell.setCellValue(finalSum);   finalSumCell.setCellStyle(style);
+                Cell marginCell    = row.createCell(col++); marginCell.setCellValue(margin);       marginCell.setCellStyle(style);
 
                 totalBase += baseSum;
                 totalFinal += finalSum;
                 totalQty += qty;
             }
 
-            // Итоговая строка
             Row totalRow = sheet.createRow(rowIdx);
             totalRow.createCell(3).setCellValue("Итого:");
             totalRow.createCell(4).setCellValue(totalQty);
@@ -1039,16 +685,18 @@ public class ProductFilterController {
         }
     }
 
-    private static final Logger logger = LoggerFactory.getLogger(ProductFilterController.class);
-
     @PostMapping("/cart/save-estimate")
     @Transactional
     public String saveEstimate(@RequestParam String projectName,
                                @RequestParam(value = "folderId", required = false) Long folderId,
                                @RequestParam(value = "folderMappingJson", required = false) String folderMappingJson,
                                HttpSession session) {
+        String user = FileNames.currentUser();
+        String fileName = FileNames.smeta(projectName, user);
 
+        @SuppressWarnings("unchecked")
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
+        @SuppressWarnings("unchecked")
         Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
         if (cart == null || cart.isEmpty()) return "redirect:/cart?error=empty";
         if (coefficientMap == null) coefficientMap = new HashMap<>();
@@ -1060,17 +708,18 @@ public class ProductFilterController {
         proposal.setFileType("estimate");
         proposal.setTimestamp(LocalDateTime.now());
         proposal.setSessionId(session.getId());
+        proposal.setCreatedBy(user);
         proposalRepo.save(proposal);
 
-        // 1) Дерево из сессии
+        @SuppressWarnings("unchecked")
         Map<Long, String> sec = (Map<Long, String>) session.getAttribute("sections");
+        @SuppressWarnings("unchecked")
         Map<Long, Long> parents = (Map<Long, Long>) session.getAttribute("sectionParent");
         if (sec == null) sec = new LinkedHashMap<>();
         if (parents == null) parents = new HashMap<>();
-        if (!sec.containsKey(1L)) { sec.put(1L, "Общий"); }
-        if (!parents.containsKey(1L)) { parents.put(1L, null); }
+        sec.putIfAbsent(1L, "Общий");
+        parents.putIfAbsent(1L, null);
 
-        // 2) Создаём ProposalSection и строим маппинг sessionId -> savedSection
         Map<Long, ProposalSection> savedBySessionId = new LinkedHashMap<>();
         for (Map.Entry<Long, String> e : sec.entrySet()) {
             ProposalSection ps = new ProposalSection();
@@ -1086,24 +735,20 @@ public class ProductFilterController {
             proposalSectionRepo.save(node);
         }
 
-        // 3) Распарсим folderMappingJson: productId -> sessionSectionId (дефолт для "неспряжённых" штук)
         Map<Integer, Long> folderMap = new HashMap<>();
         if (folderMappingJson != null && !folderMappingJson.isBlank()) {
             try {
-                com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
-                Map<String, Long> tmp = om.readValue(folderMappingJson, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Long>>() {});
+                var om = new com.fasterxml.jackson.databind.ObjectMapper();
+                Map<String, Long> tmp = om.readValue(folderMappingJson,
+                        new com.fasterxml.jackson.core.type.TypeReference<Map<String, Long>>() {});
                 for (Map.Entry<String, Long> e : tmp.entrySet()) {
                     folderMap.put(Integer.valueOf(e.getKey()), e.getValue());
                 }
-            } catch (Exception ignore) {
-                // не критично — всё уйдёт в «Общий»
-            }
+            } catch (Exception ignore) {}
         }
 
-        // 4) Разбиение количества по папкам из сессии
         Map<Integer, Map<Long, Integer>> splits = ensureProductSectionQty(session);
 
-        // 5) Добавляем позиции в предложение, учитывая разбиение
         double totalSum = 0.0;
         for (Product product : products) {
             int pid = product.getProductId();
@@ -1116,8 +761,6 @@ public class ProductFilterController {
             Map<Long, Integer> bySection = splits.get(pid);
             if (bySection != null && !bySection.isEmpty()) {
                 int assigned = 0;
-
-                // сначала — явные куски по папкам
                 for (Map.Entry<Long, Integer> e : bySection.entrySet()) {
                     int q = e.getValue() != null ? e.getValue() : 0;
                     if (q <= 0) continue;
@@ -1127,71 +770,98 @@ public class ProductFilterController {
                     item.setQuantity(q);
                     item.setBasePrice(basePrice);
                     item.setCoefficient(k);
-
-                    ProposalSection dbSection = savedBySessionId.getOrDefault(e.getKey(), savedBySessionId.get(1L));
-                    item.setSectionNode(dbSection);
-
+                    item.setSectionNode(savedBySessionId.getOrDefault(e.getKey(), savedBySessionId.get(1L)));
                     proposal.addItem(item);
+
                     totalSum += q * basePrice * k;
                     assigned += q;
                 }
-
-                // остаток (если общее кол-во больше суммы разбиений) — в дефолтную папку
                 int rest = Math.max(0, qtyTotal - assigned);
                 if (rest > 0) {
                     Long sessSectionId = folderMap.getOrDefault(pid, 1L);
-                    ProposalSection dbSection = savedBySessionId.getOrDefault(sessSectionId, savedBySessionId.get(1L));
-
                     ProposalItem item = new ProposalItem();
                     item.setProduct(product);
                     item.setQuantity(rest);
                     item.setBasePrice(basePrice);
                     item.setCoefficient(k);
-                    item.setSectionNode(dbSection);
-
+                    item.setSectionNode(savedBySessionId.getOrDefault(sessSectionId, savedBySessionId.get(1L)));
                     proposal.addItem(item);
                     totalSum += rest * basePrice * k;
                 }
             } else {
-                // разбиения нет — кладём всё количество в дефолтную папку
                 Long sessSectionId = folderMap.getOrDefault(pid, 1L);
-                ProposalSection dbSection = savedBySessionId.getOrDefault(sessSectionId, savedBySessionId.get(1L));
-
                 ProposalItem item = new ProposalItem();
                 item.setProduct(product);
                 item.setQuantity(qtyTotal);
                 item.setBasePrice(basePrice);
                 item.setCoefficient(k);
-                item.setSectionNode(dbSection);
-
+                item.setSectionNode(savedBySessionId.getOrDefault(sessSectionId, savedBySessionId.get(1L)));
                 proposal.addItem(item);
                 totalSum += qtyTotal * basePrice * k;
             }
         }
 
         proposal.setTotalSum(totalSum);
-        proposalRepo.save(proposal);
 
+        Path dir = Paths.get("files", "estimates");
+        try {
+            Files.createDirectories(dir);
+            Path target = dir.resolve(fileName);
+
+            try (org.apache.poi.xssf.usermodel.XSSFWorkbook wb = new org.apache.poi.xssf.usermodel.XSSFWorkbook()) {
+                var sh = wb.createSheet("Смета");
+                int r = 0;
+                var header = sh.createRow(r++);
+                header.createCell(0).setCellValue("Наименование");
+                header.createCell(1).setCellValue("Артикул");
+                header.createCell(2).setCellValue("Бренд");
+                header.createCell(3).setCellValue("Кол-во");
+                header.createCell(4).setCellValue("Коэфф.");
+                header.createCell(5).setCellValue("Цена");
+                header.createCell(6).setCellValue("Сумма");
+
+                for (ProposalItem it : proposal.getItems()) {
+                    var p = it.getProduct();
+                    var row = sh.createRow(r++);
+                    row.createCell(0).setCellValue(p.getName());
+                    row.createCell(1).setCellValue(p.getArticleCode() != null ? p.getArticleCode() : "");
+                    row.createCell(2).setCellValue(p.getBrand() != null ? p.getBrand().getBrandName() : "");
+                    row.createCell(3).setCellValue(it.getQuantity());
+                    row.createCell(4).setCellValue(it.getCoefficient() != null ? it.getCoefficient() : 1.0);
+                    row.createCell(5).setCellValue(it.getBasePrice() != null ? it.getBasePrice() : 0.0);
+                    double sum = (it.getQuantity()) * (it.getCoefficient() != null ? it.getCoefficient() : 1.0)
+                            * (it.getBasePrice() != null ? it.getBasePrice() : 0.0);
+                    row.createCell(6).setCellValue(sum);
+                }
+                var totalRow = sh.createRow(r++);
+                totalRow.createCell(5).setCellValue("Итого:");
+                totalRow.createCell(6).setCellValue(totalSum);
+
+                try (java.io.OutputStream os = Files.newOutputStream(target)) {
+                    wb.write(os);
+                }
+            }
+
+            proposal.setFilePath(target.toString());
+        } catch (Exception e) {
+            proposal.setFilePath(null);
+        }
+
+        proposalRepo.save(proposal);
+        session.setAttribute("projectName", projectName);
         return "redirect:/cart?saved=1";
     }
-
-
 
     @ModelAttribute("proposalHistory")
     public List<Proposal> getHistory(HttpSession session) {
         return proposalRepo.findBySessionIdAndFileTypeOrderByTimestampDesc(session.getId(), "estimate");
     }
 
-
-
-
     @PostMapping("/cart/load-estimate")
     public String loadEstimate(@RequestParam("proposalId") Long proposalId, HttpSession session) {
-        // 1) штатно грузим содержимое
         proposalService.loadEstimateToSession(proposalId, session);
 
         proposalRepo.findById(proposalId).ifPresent(p -> {
-            // 2) дерево секций -> сессию (как у вас уже сделано)
             List<ProposalSection> nodes = proposalSectionRepo.findByProposalId(proposalId);
             Map<Long, String> sec = ensureSections(session);
             Map<Long, Long> parents = ensureSectionParents(session);
@@ -1201,77 +871,59 @@ public class ProductFilterController {
                 parents.put(n.getId(), n.getParent() != null ? n.getParent().getId() : null);
             }
 
-            // найдём корень из БД (parent == null) или любой узел, если дерево пустое
             Long rootId = parents.entrySet().stream().filter(e -> e.getValue() == null)
                     .map(Map.Entry::getKey).findFirst()
                     .orElseGet(() -> {
-                        if (sec.isEmpty()) {
-                            sec.put(1L, "Общий"); parents.put(1L, null);
-                            return 1L;
-                        }
+                        if (sec.isEmpty()) { sec.put(1L, "Общий"); parents.put(1L, null); return 1L; }
                         return sec.keySet().iterator().next();
                     });
 
-            // 3) productId -> sectionId
             Map<Integer, Long> ps = ensureProductSection(session);
-            ps.clear();
+            Map<Integer, Map<Long,Integer>> splits = ensureProductSectionQty(session);
+            ps.clear(); splits.clear();
             if (p.getItems() != null) {
-                Map<String, Long> nameToId = new HashMap<>();
-                for (ProposalSection n : nodes) nameToId.putIfAbsent(n.getName(), n.getId());
+                p.getItems().forEach(it -> {
+                    if (it.getProduct() == null) return;
+                    int pid = it.getProduct().getProductId();
+                    Long nodeId = null;
+                    if (it.getSectionNode() != null) nodeId = it.getSectionNode().getId();
+                    else if (it.getSectionId() != null && sec.containsKey(it.getSectionId())) nodeId = it.getSectionId();
+                    if (nodeId == null) nodeId = rootId;
+                    int q = it.getQuantity() != null ? it.getQuantity() : 0;
+                    if (q > 0) splits.computeIfAbsent(pid, k -> new HashMap<>()).merge(nodeId, q, Integer::sum);
+                });
 
-                Map<Integer, Map<Long,Integer>> splits = ensureProductSectionQty(session);
-                splits.clear();
+                session.setAttribute(PRODUCT_SECTION_QTY, splits);
 
-                final Long fallbackRoot = rootId;
-                if (p.getItems() != null) {
-                    p.getItems().forEach(it -> {
-                        if (it.getProduct() == null) return;
+                ps.clear();
+                for (Map.Entry<Integer, Map<Long, Integer>> e : splits.entrySet()) {
+                    Integer pid = e.getKey();
+                    Map<Long, Integer> bySec = e.getValue();
+                    if (bySec != null && !bySec.isEmpty()) {
+                        Long dominant = bySec.entrySet().stream()
+                                .max(Comparator.comparingInt(x -> x.getValue() != null ? x.getValue() : 0))
+                                .map(Map.Entry::getKey)
+                                .orElse(rootId);
+                        ps.put(pid, dominant);
+                    } else {
+                        ps.put(pid, rootId);
+                    }
+                }
+
+                if (ps.isEmpty() && p.getItems() != null) {
+                    for (ProposalItem it : p.getItems()) {
+                        if (it.getProduct() == null) continue;
                         int pid = it.getProduct().getProductId();
                         Long nodeId = null;
                         if (it.getSectionNode() != null) nodeId = it.getSectionNode().getId();
                         else if (it.getSectionId() != null && sec.containsKey(it.getSectionId())) nodeId = it.getSectionId();
-                        if (nodeId == null) nodeId = fallbackRoot;
-                        int q = it.getQuantity() != null ? it.getQuantity() : 0;
-                        if (q > 0) {
-                            splits.computeIfAbsent(pid, k -> new HashMap<>()).merge(nodeId, q, Integer::sum);
-                        }
-                    });
-                    session.setAttribute(PRODUCT_SECTION_QTY, splits);
-// === ВОССТАНОВИМ productSection (доминирующая папка по товару) ===
-                    ps.clear();
-                    for (Map.Entry<Integer, Map<Long, Integer>> e : splits.entrySet()) {
-                        Integer pid = e.getKey();
-                        Map<Long, Integer> bySec = e.getValue();
-                        if (bySec != null && !bySec.isEmpty()) {
-                            Long dominant = bySec.entrySet().stream()
-                                    .max(Comparator.comparingInt(x -> x.getValue() != null ? x.getValue() : 0))
-                                    .map(Map.Entry::getKey)
-                                    .orElse(rootId);
-                            ps.put(pid, dominant);
-                        } else {
-                            ps.put(pid, rootId);
-                        }
+                        if (nodeId == null) nodeId = rootId;
+                        ps.putIfAbsent(pid, nodeId);
                     }
-
-// Если разбиений нет (старые сохранения), попробуем взять секцию напрямую из позиций
-                    if (ps.isEmpty() && p.getItems() != null) {
-                        for (ProposalItem it : p.getItems()) {
-                            if (it.getProduct() == null) continue;
-                            int pid = it.getProduct().getProductId();
-                            Long nodeId = null;
-                            if (it.getSectionNode() != null) nodeId = it.getSectionNode().getId();
-                            else if (it.getSectionId() != null && sec.containsKey(it.getSectionId())) nodeId = it.getSectionId();
-                            if (nodeId == null) nodeId = rootId;
-                            // положим хотя бы одну «базовую» папку на товар
-                            ps.putIfAbsent(pid, nodeId);
-                        }
-                    }
-                    session.setAttribute("productSection", ps);
                 }
-
+                session.setAttribute("productSection", ps);
             }
 
-            // 4) ✅ РЕЗЕРВ: восстановим cart/coefficients напрямую из Proposal, если их нет/пустые
             Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
             if (cart == null || cart.isEmpty()) {
                 Map<Integer, Integer> newCart = new HashMap<>();
@@ -1295,8 +947,6 @@ public class ProductFilterController {
 
         return "redirect:/cart";
     }
-
-
 
     @GetMapping("/cart/history")
     public String viewHistory(HttpSession session, Model model) {
@@ -1352,7 +1002,6 @@ public class ProductFilterController {
 
             session.setAttribute("cart", cart);
             session.setAttribute("coefficientMap", coefficientMap);
-
             redirectAttributes.addFlashAttribute("message", "Смета успешно загружена");
         } catch (Exception e) {
             e.printStackTrace();
@@ -1385,18 +1034,16 @@ public class ProductFilterController {
         if (cart == null) return;
         for (Integer id : productIds) {
             cart.remove(id);
-            ensureProductSection(session).remove(id); // убираем привязку раздела
+            ensureProductSection(session).remove(id);
             if (coefficientMap != null) coefficientMap.remove(id);
         }
         session.setAttribute("cart", cart);
         session.setAttribute("coefficientMap", coefficientMap);
     }
 
-
     @RestController
     @RequestMapping("/filter")
     public class ParameterLabelsController {
-
         private final ProductRepository productRepo;
         private final ProductParameterRepository parameterRepo;
         private final ProductCategoriesRepository productCategoriesRepo;
@@ -1414,7 +1061,6 @@ public class ProductFilterController {
                 @RequestParam(value = "groupId", required = false) Integer groupId,
                 @RequestParam(value = "subGroupId", required = false) Integer subGroupId
         ) {
-            // Дефолты
             Map<String, String> labels = new LinkedHashMap<>();
             labels.put("param1", "Параметр 1");
             labels.put("param2", "Параметр 2");
@@ -1425,7 +1071,6 @@ public class ProductFilterController {
             Integer catId = (subGroupId != null ? subGroupId : groupId);
             if (catId == null) return labels;
 
-            // Собираем товары выбранной категории
             List<ProductCategories> links = productCategoriesRepo.findAll();
             Set<Integer> productIds = links.stream()
                     .filter(pc -> catId.equals(pc.getCategoryId()))
@@ -1433,32 +1078,27 @@ public class ProductFilterController {
                     .collect(toSet());
             if (productIds.isEmpty()) return labels;
 
-            // Параметры + карта товаров
             List<ProductParameters> params = parameterRepo.findByProduct_ProductIdIn(productIds);
             if (params.isEmpty()) return labels;
 
             Map<Integer, Product> productMap = productRepo.findAllById(productIds).stream()
                     .collect(toMap(Product::getProductId, p -> p));
 
-            // Инференс подписей
             Map<String, String> inferred = ParamLabelInferer.infer(params, productMap);
-
             inferred.forEach((k, v) -> labels.put(k, v == null ? "" : v));
             return labels;
         }
 
-        // ----------------- Внутренний инференсер подписей -----------------
-
         private static final class ParamLabelInferer {
-            private static final Pattern POLES      = Pattern.compile("^[1-4]\\s*[pр]$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-            private static final Pattern CURRENT_A  = Pattern.compile("^\\d{1,3}\\s*[aа]$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-            private static final Pattern CHAR_BCD   = Pattern.compile("^[bcdBCD]$");
-            private static final Pattern KA_CUTOFF  = Pattern.compile("^\\d{1,2}(?:[\\.,]\\d{1,2})?\\s*(?:k|к)\\s*a$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-            private static final Pattern THICKNESS  = Pattern.compile("^[0-3](?:[\\.,]\\d)$");
-            private static final Pattern NUMBER     = Pattern.compile("^\\d+(?:[\\.,]\\d+)?$");
+            private static final Pattern POLES = Pattern.compile("^[1-4]\\s*[pр]$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+            private static final Pattern CURRENT_A = Pattern.compile("^\\d{1,3}\\s*[aа]$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+            private static final Pattern CHAR_BCD = Pattern.compile("^[bcdBCD]$");
+            private static final Pattern KA_CUTOFF = Pattern.compile("^\\d{1,2}(?:[\\.,]\\d{1,2})?\\s*(?:k|к)\\s*a$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+            private static final Pattern THICKNESS = Pattern.compile("^[0-3](?:[\\.,]\\d)$");
+            private static final Pattern NUMBER = Pattern.compile("^\\d+(?:[\\.,]\\d+)?$");
             private static final Pattern DIM_KEYWORDS = Pattern.compile("лоток|профиль|труба|переходник|короб", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
-            private static final double COVERAGE_THRESHOLD = 0.30; // порог заполненности слота
+            private static final double COVERAGE_THRESHOLD = 0.30;
 
             static Map<String, String> infer(List<ProductParameters> params, Map<Integer, Product> products) {
                 Map<String, String> res = new LinkedHashMap<>();
@@ -1472,32 +1112,26 @@ public class ProductFilterController {
                 double cov4 = p4.size() / (double) total;
                 double cov5 = p5.size() / (double) total;
 
-                // 1) Раннее решение: это габаритная категория?
                 boolean looksDims = looksLikeDimsRelaxed(p1, p2, p3) || namesSuggestDimsLoose(products);
                 if (looksDims) {
-                    // Ставим подписи сразу, не прячем их по порогу
                     res.put("param1", "Длина");
                     res.put("param2", "Ширина");
                     res.put("param3", "Высота");
                 }
 
-                // 2) Прятать Д/Ш/В только если вообще нет значений
                 if (p1.isEmpty()) res.put("param1", "");
                 if (p2.isEmpty()) res.put("param2", "");
                 if (p3.isEmpty()) res.put("param3", "");
 
-                // 3) Для p4/p5 оставляем прежний порог
                 if (cov4 < COVERAGE_THRESHOLD) res.put("param4", "");
                 if (cov5 < COVERAGE_THRESHOLD) res.put("param5", "");
 
-                // 4) Для тех слотов, где подпись ещё не проставлена — классифицируем по паттернам
                 inferSlot("param1", p1, res);
                 inferSlot("param2", p2, res);
                 inferSlot("param3", p3, res);
                 inferSlot("param4", p4, res);
                 inferSlot("param5", p5, res);
 
-                // 5) Нормализуем единицы
                 if ("Толщина".equals(res.get("param4"))) res.put("param4", "Толщина, мм");
                 if ("Ток (А)".equals(res.get("param2"))) res.put("param2", "Ток, А");
                 if ("Отсечка (кА)".equals(res.get("param4"))) res.put("param4", "Отключающая способность, кА");
@@ -1505,23 +1139,21 @@ public class ProductFilterController {
                 return res;
             }
 
-            // Более «мягкая» проверка габаритов: 2 из 3 — в основном числа
             private static boolean looksLikeDimsRelaxed(List<String> p1, List<String> p2, List<String> p3) {
                 int ok = 0;
                 if (percentNumeric(p1) > 0.6) ok++;
                 if (percentNumeric(p2) > 0.6) ok++;
-                if (percentNumeric(p3) > 0.4) ok++; // третьему даём послабление
+                if (percentNumeric(p3) > 0.4) ok++;
                 return ok >= 2;
             }
 
-            // Слова-триггеры в названиях — считаем «габаритными», если встречаются хотя бы у ~5% позиций
             private static boolean namesSuggestDimsLoose(Map<Integer, Product> products) {
                 if (products.isEmpty()) return false;
                 long hits = products.values().stream()
                         .map(p -> Optional.ofNullable(p.getName()).orElse(""))
                         .filter(n -> DIM_KEYWORDS.matcher(n).find())
                         .count();
-                return (hits / (double) products.size()) > 0.05; // было 0.2 — слишком строго
+                return (hits / (double) products.size()) > 0.05;
             }
 
             private static List<String> values(List<ProductParameters> params, int idx) {
@@ -1557,25 +1189,21 @@ public class ProductFilterController {
                 out.put(key, "Размер");
             }
 
-            private static boolean looksLikeDims(List<String> p1, List<String> p2, List<String> p3) {
-                return percentNumeric(p1) > 0.6 && percentNumeric(p2) > 0.6 && percentNumeric(p3) > 0.5;
-            }
-
             private static double percentNumeric(List<String> vals) {
                 if (vals.isEmpty()) return 0;
                 long m = vals.stream().filter(v -> NUMBER.matcher(v).matches()).count();
                 return m / (double) vals.size();
             }
-
-            private static boolean namesSuggestDims(Map<Integer, Product> products) {
-                if (products.isEmpty()) return false;
-                long hits = products.values().stream()
-                        .map(p -> Optional.ofNullable(p.getName()).orElse(""))
-                        .filter(n -> DIM_KEYWORDS.matcher(n).find())
-                        .count();
-                return (hits / (double) products.size()) > 0.2;
-            }
         }
+    }
+
+    // ===== helpers =====
+
+    private static String rfc5987ContentDisposition(String filenameUtf8) {
+        String safeAscii = filenameUtf8.replace('"', '\'')
+                .replaceAll("[^A-Za-z0-9._-]", "_");
+        String encoded = URLEncoder.encode(filenameUtf8, StandardCharsets.UTF_8).replace("+", "%20");
+        return "attachment; filename=\"" + safeAscii + "\"; filename*=UTF-8''" + encoded;
     }
 
     @SuppressWarnings("unchecked")
@@ -1583,7 +1211,7 @@ public class ProductFilterController {
         Map<Long, String> sec = (Map<Long, String>) s.getAttribute("sections");
         if (sec == null) {
             sec = new LinkedHashMap<>();
-            sec.put(1L, "Общий"); // раздел по умолчанию
+            sec.put(1L, "Общий");
             s.setAttribute("sections", sec);
         }
         return sec;
@@ -1632,18 +1260,14 @@ public class ProductFilterController {
         return ensureProductSectionQty(s);
     }
 
-
-
     @SuppressWarnings("unchecked")
     private Map<Long, Long> ensureSectionParents(HttpSession s) {
-        // ЕДИНСТВЕННЫЙ ключ:
         Map<Long, Long> parents = (Map<Long, Long>) s.getAttribute("sectionParent");
         if (parents == null) {
             parents = new HashMap<>();
-            parents.put(1L, null); // корень
+            parents.put(1L, null);
             s.setAttribute("sectionParent", parents);
         }
-        // миграция со старого ключа на лету (если где-то ещё остался)
         Map<Long, Long> legacy = (Map<Long, Long>) s.getAttribute("sectionParents");
         if (legacy != null && !legacy.isEmpty()) {
             parents.clear();
@@ -1656,12 +1280,11 @@ public class ProductFilterController {
     private Long findRootId(HttpSession s) {
         Map<Long, Long> parents = ensureSectionParents(s);
         return parents.entrySet().stream()
-                .filter(e -> e.getValue() == null)   // parent == null → корень
+                .filter(e -> e.getValue() == null)
                 .map(Map.Entry::getKey)
                 .findFirst()
-                .orElse(1L); // fallback на 1L, если вдруг пусто
+                .orElse(1L);
     }
-
 
     @PostMapping("/cart/sections/extract-one")
     @ResponseBody
@@ -1682,9 +1305,7 @@ public class ProductFilterController {
         Map<Long,Integer> bySection = splits.computeIfAbsent(productId, k -> new HashMap<>());
 
         Map<Integer, Long> prodSec = ensureProductSection(s);
-        Long from = (fromSectionId != null) ? fromSectionId
-                : prodSec.getOrDefault(productId, findRootId(s));
-
+        Long from = (fromSectionId != null) ? fromSectionId : prodSec.getOrDefault(productId, findRootId(s));
 
         int assignedInFrom = bySection.getOrDefault(from, 0);
         int assignedTotal  = bySection.values().stream().mapToInt(Integer::intValue).sum();
@@ -1692,28 +1313,22 @@ public class ProductFilterController {
 
         int need = qty;
 
-        // Сначала уменьшим в исходной папке, если там явно что-то было
         int fromTaken = Math.min(assignedInFrom, need);
         if (fromTaken > 0) bySection.put(from, assignedInFrom - fromTaken);
         need -= fromTaken;
 
-        // Остаток возьмём из «свободного» пула (неспряжённые штуки)
         int freeTaken = Math.min(free, need);
         need -= freeTaken;
 
         if (need > 0) {
-            // вернуть как было
             if (fromTaken > 0) bySection.put(from, assignedInFrom);
             return Map.of("ok", false, "msg", "Недостаточно количества для извлечения");
         }
 
         bySection.merge(toSectionId, qty, Integer::sum);
-
-        // подчистим нули
         bySection.entrySet().removeIf(e -> e.getValue() == null || e.getValue() <= 0);
         if (bySection.isEmpty()) splits.remove(productId);
 
-        // Обновим «доминирующую» папку для совместимости (куда чаще всего лежит)
         int max = -1; Long dom = prodSec.getOrDefault(productId, 1L);
         for (var e : bySection.entrySet()) {
             if (e.getValue() > max) { max = e.getValue(); dom = e.getKey(); }
@@ -1722,6 +1337,4 @@ public class ProductFilterController {
 
         return Map.of("ok", true, "splits", bySection);
     }
-
-
 }
