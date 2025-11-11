@@ -20,6 +20,14 @@ public class ProposalItem {
     private Double coefficient;
     private Double finalPrice;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "section_id")
+    private ProposalSection sectionNode;
+
+    // 🔹 «сырое» значение того же столбца (нужно твоему контроллеру для getSectionId())
+    @Column(name = "section_id", insertable = false, updatable = false)
+    private Long sectionId;
+
 
     public Long getId() {
         return id;
@@ -75,5 +83,21 @@ public class ProposalItem {
 
     public void setFinalPrice(Double finalPrice) {
         this.finalPrice = finalPrice;
+    }
+
+    public ProposalSection getSectionNode() {
+        return sectionNode;
+    }
+
+    public void setSectionNode(ProposalSection sectionNode) {
+        this.sectionNode = sectionNode;
+    }
+
+    public Long getSectionId() {
+        return sectionId;
+    }
+
+    public void setSectionId(Long sectionId) {
+        this.sectionId = sectionId;
     }
 }

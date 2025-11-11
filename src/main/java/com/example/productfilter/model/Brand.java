@@ -1,15 +1,14 @@
 package com.example.productfilter.model;
 
 import jakarta.persistence.*;
-
 @Entity
-@Table(name = "brands")
+@Table(name="brands")
 public class Brand {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY) // <-- обязательно
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer brandId;
 
-    @Column(unique = true, nullable = false)
+    @Column(nullable = false)
     private String brandName;
 
     public Brand() {
