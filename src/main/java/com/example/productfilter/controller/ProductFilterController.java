@@ -311,8 +311,110 @@ public class ProductFilterController {
         ensureProductSection(session).put(productId, sid);
     }
 
+    // === НОВОЕ: переименование секции («папки») ===
+    @PostMapping("/cart/sections/rename")
+    @ResponseBody
+    public Map<String, Object> renameSection(@RequestParam Long sectionId,
+                                             @RequestParam String name,
+                                             HttpSession s) {
+        if (name == null || name.isBlank()) {
+            return Map.of("ok", false, "msg", "Пустое имя");
+        }
+        Map<Long, String> sec = ensureSections(s);
+        if (!sec.containsKey(sectionId)) {
+            return Map.of("ok", false, "msg", "Секции нет");
+        }
+        sec.put(sectionId, name.trim());
+        s.setAttribute("sections", sec);
+        return Map.of("ok", true, "id", sectionId, "name", name.trim());
+    }
+
+    // === НОВОЕ: установка количества товара и пересчёт сумм ===
+    @PostMapping("/cart/set-qty")
+    @ResponseBody
+    public Map<String, Object> setQuantity(@RequestParam Integer productId,
+                                           @RequestParam Integer qty,
+                                           HttpSession s) {
+        if (productId == null) return Map.of("ok", false, "msg", "Нет productId");
+        if (qty == null || qty < 1) qty = 1;
+
+        @SuppressWarnings("unchecked")
+        Map<Integer,Integer> cart = (Map<Integer,Integer>) s.getAttribute("cart");
+        if (cart == null || !cart.containsKey(productId)) {
+            return Map.of("ok", false, "msg", "Товар не в корзине");
+        }
+
+        cart.put(productId, qty);
+        s.setAttribute("cart", cart);
+
+        // ужать разбиения по секциям, если они больше нового qty
+        Map<Integer, Map<Long,Integer>> splits = ensureProductSectionQty(s);
+        Map<Long,Integer> bySection = splits.get(productId);
+        if (bySection != null && !bySection.isEmpty()) {
+            int assigned = bySection.values().stream().mapToInt(v -> v == null ? 0 : v).sum();
+            if (assigned > qty) {
+                int rest = qty;
+                Long dominant = bySection.entrySet().stream()
+                        .max(Comparator.comparingInt(e -> e.getValue() == null ? 0 : e.getValue()))
+                        .map(Map.Entry::getKey).orElse(null);
+                Map<Long,Integer> resized = new LinkedHashMap<>();
+                for (var e : bySection.entrySet()) {
+                    int v = e.getValue() == null ? 0 : e.getValue();
+                    int nv = (int) Math.floor((v * 1.0 * qty) / Math.max(1, assigned));
+                    resized.put(e.getKey(), nv);
+                    rest -= nv;
+                }
+                if (dominant != null && rest > 0) {
+                    resized.merge(dominant, rest, Integer::sum);
+                }
+                resized.entrySet().removeIf(x -> x.getValue() == null || x.getValue() <= 0);
+                if (resized.isEmpty()) splits.remove(productId); else splits.put(productId, resized);
+                s.setAttribute(PRODUCT_SECTION_QTY, splits);
+            }
+        }
+
+        // расчёт цен
+        Map<Integer, Double> coeff = (Map<Integer, Double>) s.getAttribute("coefficientMap");
+        if (coeff == null) coeff = new HashMap<>();
+
+        List<Product> products = cart.isEmpty()
+                ? List.of()
+                : productRepo.findAllById(cart.keySet());
+
+        double totalSum = 0.0;
+        int totalQty = 0;
+        Map<Integer, Double> lineSums = new HashMap<>();
+        Map<Integer, Double> unitPrices = new HashMap<>();
+
+        for (Product p : products) {
+            int q = cart.getOrDefault(p.getProductId(), 0);
+            double base = p.getPrice() == null ? 0.0 : p.getPrice();
+            double k = coeff.getOrDefault(p.getProductId(), 1.0);
+            double unit = base * k;
+            double line = unit * q;
+            unitPrices.put(p.getProductId(), unit);
+            lineSums.put(p.getProductId(), line);
+            totalSum += line;
+            totalQty += q;
+        }
+
+        return Map.of(
+                "ok", true,
+                "productId", productId,
+                "qty", qty,
+                "unitPrice", unitPrices.getOrDefault(productId, 0.0),
+                "lineSum", lineSums.getOrDefault(productId, 0.0),
+                "totalQty", totalQty,
+                "totalSum", totalSum
+        );
+    }
+
     @GetMapping("/cart")
-    public String viewCart(Model model, HttpSession session) {
+    public String viewCart(Model model, HttpSession session, HttpServletResponse resp) {
+        // no-cache, чтобы избежать визуального «отката» из-за кэша браузера
+        resp.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+        resp.setHeader("Pragma", "no-cache");
+
         String sessionId = session.getId();
 
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
@@ -399,6 +501,8 @@ public class ProductFilterController {
         } else {
             cart.remove(productId);
             ensureProductSection(session).remove(productId);
+            Map<Integer, Map<Long,Integer>> splits = ensureProductSectionQty(session);
+            splits.remove(productId);
         }
         session.setAttribute("cart", cart);
     }
@@ -467,10 +571,9 @@ public class ProductFilterController {
             return;
         }
 
-        // имя файла сметы по умолчанию
         String projectName = Optional.ofNullable((String) session.getAttribute("projectName")).orElse("Проект");
         String user = FileNames.currentUser();
-        String fnameXlsx = FileNames.smeta(projectName, user); // ожидается ".xlsx" внутри
+        String fnameXlsx = FileNames.smeta(projectName, user);
 
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", rfc5987ContentDisposition(fnameXlsx));
@@ -527,7 +630,7 @@ public class ProductFilterController {
     public void downloadProposalExcelKp(HttpServletResponse response, HttpSession session) throws IOException {
         String projectName = Optional.ofNullable((String) session.getAttribute("projectName")).orElse("Проект");
         String user = FileNames.currentUser();
-        String fnameXlsx = FileNames.kpXlsx(projectName, user); // "Elcos КП <Проект> <ДД.ММ.ГГГГ> <user>.xlsx"
+        String fnameXlsx = FileNames.kpXlsx(projectName, user);
 
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("proposalCart");
         List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
@@ -623,7 +726,7 @@ public class ProductFilterController {
 
         String projectName = Optional.ofNullable((String) session.getAttribute("projectName")).orElse("Проект");
         String user = FileNames.currentUser();
-        String fname = FileNames.smeta(projectName, user); // ".xlsx" внутри
+        String fname = FileNames.smeta(projectName, user);
 
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", rfc5987ContentDisposition(fname));
@@ -1035,6 +1138,8 @@ public class ProductFilterController {
         for (Integer id : productIds) {
             cart.remove(id);
             ensureProductSection(session).remove(id);
+            Map<Integer, Map<Long,Integer>> splits = ensureProductSectionQty(session);
+            splits.remove(id);
             if (coefficientMap != null) coefficientMap.remove(id);
         }
         session.setAttribute("cart", cart);
