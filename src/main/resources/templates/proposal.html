@@ -5,6 +5,13 @@
     <meta charset="UTF-8">
     <title>Коммерческое предложение</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* высота тела модалки и вертикальный скролл */
+        .modal-body {
+            max-height: calc(100vh - 200px); /* можно подправить число */
+            overflow-y: auto;
+        }
+    </style>
 </head>
 <body class="p-4">
 <div class="container">
@@ -45,16 +52,156 @@
         </tfoot>
     </table>
 
+    <!-- Кнопки скачивания: теперь только открывают модалку -->
+    <button type="button" class="btn btn-outline-secondary" id="downloadPdfBtn">
+        📄 Скачать КП в PDF
+    </button>
+    <button type="button" class="btn btn-outline-secondary ms-2" id="downloadExcelBtn">
+        📥 Скачать КП в Excel
+    </button>
 
-    <a href="/proposal/pdf" class="btn btn-outline-secondary">📄 Скачать КП в PDF</a>
-    <a href="/proposal/excel-kp" class="btn btn-outline-secondary ms-2">📥 Скачать КП в Excel</a>
     <div class="d-flex justify-content-between mt-4">
         <a href="/cart" class="btn btn-secondary">← Вернуться в корзину</a>
         <a href="/clear-cart-and-return" class="btn btn-primary">← Вернуться к фильтру</a>
     </div>
 </div>
 
+<!-- Модальное окно с параметрами КП -->
+<div class="modal fade" id="proposalOptionsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Параметры коммерческого предложения</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+
+            <!-- ВАЖНО: форма, которая будет отправлена на /proposal/pdf или /proposal/excel-kp -->
+            <form id="proposalForm" method="post">
+                <div class="modal-body">
+
+                    <!-- CSRF, если включён -->
+                    <input type="hidden" th:if="${_csrf != null}"
+                           th:name="${_csrf.parameterName}"
+                           th:value="${_csrf.token}"/>
+
+                    <!-- НДС -->
+                    <div class="mb-3">
+                        <label class="form-label d-block">НДС:</label>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="vatIncluded" id="vatYes" value="true" checked>
+                            <label class="form-check-label" for="vatYes">Да</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="vatIncluded" id="vatNo" value="false">
+                            <label class="form-check-label" for="vatNo">Нет</label>
+                        </div>
+                    </div>
+
+                    <!-- Условия оплаты (%) -->
+                    <div class="mb-3">
+                        <label class="form-label">Условия оплаты (%):</label>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label small">Предоплата</label>
+                                <input type="number" class="form-control" name="prepaymentPercent"
+                                       min="0" max="100" value="70">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">Оплата перед отгрузкой</label>
+                                <input type="number" class="form-control" name="beforeShipmentPercent"
+                                       min="0" max="100" value="30">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">Постоплата</label>
+                                <input type="number" class="form-control" name="postPaymentPercent"
+                                       min="0" max="100" value="0">
+                            </div>
+                        </div>
+                        <div class="form-text">Сумма процентов по желанию можно делать = 100.</div>
+                    </div>
+
+                    <!-- Условия оплаты (Примечание) -->
+                    <div class="mb-3">
+                        <label class="form-label">Условия оплаты (примечание):</label>
+                        <textarea class="form-control" name="paymentNote" maxlength="200" rows="2"
+                                  placeholder="Например: 70% предоплата, 30% после уведомления о готовности товара к отгрузке."></textarea>
+                        <div class="form-text">Не более 200 символов.</div>
+                    </div>
+
+                    <!-- Срок изготовления (рабочие дни) -->
+                    <div class="mb-3">
+                        <label class="form-label">Срок изготовления (рабочие дни):</label>
+                        <input type="number" class="form-control" name="productionDays" min="1" max="999" value="45">
+                    </div>
+
+                    <!-- Условия поставки -->
+                    <div class="mb-3">
+                        <label class="form-label">Условия поставки:</label>
+                        <input type="text" class="form-control" name="deliveryTerms" maxlength="100"
+                               placeholder="Например: DDP г. Алматы">
+                        <div class="form-text">Не более 100 символов.</div>
+                    </div>
+
+                    <!-- Комплектующие -->
+                    <div class="mb-3">
+                        <label class="form-label">Комплектующие:</label>
+                        <input type="text" class="form-control" name="components" maxlength="100"
+                               placeholder="Например: Комплект поставки согласно спецификации.">
+                        <div class="form-text">Не более 100 символов.</div>
+                    </div>
+
+                    <!-- Гарантия (месяцы) -->
+                    <div class="mb-3">
+                        <label class="form-label">
+                            Гарантийные условия производителя (месяцев):
+                        </label>
+                        <input type="number" class="form-control" name="warrantyMonths"
+                               min="1" max="99" value="12">
+                    </div>
+
+                    <!-- Курс доллара -->
+                    <div class="mb-3">
+                        <label class="form-label">
+                            Цена действительна при цене 1 $ (тенге по курсу НБ РК):
+                        </label>
+                        <input type="number" step="0.01" class="form-control" name="usdRate"
+                               min="0" max="9999" value="540.00">
+                        <div class="form-text">
+                            В КП будет текст: «при цене за 1 $ = &lt;значение&gt; тенге по курсу Нацбанка РК, при изменении курса +/- 3% КП недействительно».
+                        </div>
+                    </div>
+
+                    <!-- Дополнительные условия -->
+                    <div class="mb-3">
+                        <label class="form-label">Дополнительные условия:</label>
+                        <textarea class="form-control" name="extraConditions" maxlength="200" rows="2"></textarea>
+                        <div class="form-text">Не более 200 символов.</div>
+                    </div>
+
+                    <!-- Срок действия КП -->
+                    <div class="mb-3">
+                        <label class="form-label">Коммерческое предложение действительно (дней):</label>
+                        <input type="number" class="form-control" name="validDays" min="1" max="99" value="3">
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        Отмена
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        Скачать
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
+    // Форматирование цен
     document.querySelectorAll(".price-format").forEach(el => {
         const num = parseFloat(el.innerText.replace(",", "."));
         if (!isNaN(num)) {
@@ -64,6 +211,23 @@
                 useGrouping: true
             });
         }
+    });
+
+    // Логика модалки и отправки формы
+    const pdfBtn = document.getElementById('downloadPdfBtn');
+    const excelBtn = document.getElementById('downloadExcelBtn');
+    const proposalForm = document.getElementById('proposalForm');
+    const modalEl = document.getElementById('proposalOptionsModal');
+    const modal = new bootstrap.Modal(modalEl);
+
+    pdfBtn.addEventListener('click', () => {
+        proposalForm.action = '/proposal/pdf';          // endpoint для PDF
+        modal.show();
+    });
+
+    excelBtn.addEventListener('click', () => {
+        proposalForm.action = '/proposal/excel-kp';     // endpoint для Excel
+        modal.show();
     });
 </script>
 </body>

@@ -28,6 +28,8 @@ import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.awt.Color;
@@ -61,13 +63,18 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
+import com.example.productfilter.dto.ProposalParams;
+import java.math.BigDecimal;
+
 @Controller
 @RequestMapping("/proposal")
 public class ProposalController {
 
     // ---------- PDF ----------
-    @GetMapping(value = "/pdf", produces = "application/pdf")
-    public void downloadProposalPdf(HttpServletResponse response, HttpSession session) throws IOException {
+    @PostMapping(value = "/pdf", produces = "application/pdf")
+    public void downloadProposalPdf(@ModelAttribute ProposalParams params,
+                                    HttpServletResponse response,
+                                    HttpSession session) throws IOException {
         String projectName = Optional.ofNullable((String) session.getAttribute("projectName")).orElse("Проект");
         String user = FileNames.currentUser();
         String fnamePdf = ensurePdfExt(FileNames.kpPdf(projectName, user));
@@ -84,7 +91,6 @@ public class ProposalController {
             return;
         }
 
-        // группировка по папкам «Блоков»
         @SuppressWarnings("unchecked")
         Map<Integer, Long> productSection = (Map<Integer, Long>) session.getAttribute("productSection");
         if (productSection == null) productSection = new HashMap<>();
@@ -92,19 +98,24 @@ public class ProposalController {
         Map<Long, String> sections = (Map<Long, String>) session.getAttribute("sections");
         if (sections == null || sections.isEmpty()) { sections = new LinkedHashMap<>(); sections.put(1L, "Блок 1"); }
 
+        List<String> footerLines = buildFooterLines(params);
+
         response.setContentType("application/pdf");
         response.setHeader("Content-Disposition", contentDisposition(fnamePdf));
-        byte[] pdf = buildPdf(products, cart, coefficientMap, productSection, sections, session);
+        byte[] pdf = buildPdf(products, cart, coefficientMap, productSection, sections, session, footerLines);
 
         try (OutputStream out = response.getOutputStream()) { out.write(pdf); }
     }
 
     // ---------- Excel ----------
     @GetMapping("/excel-kp")
-    public void downloadProposalExcelKp(HttpServletResponse response, HttpSession session) throws IOException {
+    public void downloadProposalExcelKp(@ModelAttribute ProposalParams params,
+                                        HttpServletResponse response,
+                                        HttpSession session) throws IOException {
         String projectName = Optional.ofNullable((String) session.getAttribute("projectName")).orElse("Проект");
         String user = FileNames.currentUser();
         String fnameXlsx = FileNames.kpXlsx(projectName, user);
+        List<String> footerLines = buildFooterLines(params);
 
         @SuppressWarnings("unchecked")
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("proposalCart");
@@ -272,8 +283,12 @@ public class ProposalController {
             sh.addMergedRegion(new CellRangeAddress(it3.getRowNum(), it3.getRowNum(), 4, 5));
 
             r++;
+            for (String line : footerLines) {
+                Row row = sh.createRow(r++);
+                cell(row, 0, "• " + line, base);
+                sh.addMergedRegion(new CellRangeAddress(row.getRowNum(), row.getRowNum(), 0, 5));
+            }
             Row note = sh.createRow(r++);
-            cell(note, 0, "Срок действия КП: 10 рабочих дней. Срок поставки и условия оплаты согласовываются дополнительно.", base);
             sh.addMergedRegion(new CellRangeAddress(note.getRowNum(), note.getRowNum(), 0, 5));
 
             for (int i = 0; i <= sh.getLastRowNum(); i++) { Row rr = sh.getRow(i); if (rr != null) rr.setHeightInPoints(-1); }
@@ -304,7 +319,8 @@ public class ProposalController {
                                    Map<Integer, Double> coeffs,
                                    Map<Integer, Long> productSection,
                                    Map<Long, String> sections,
-                                   HttpSession session) throws IOException {
+                                   HttpSession session,
+                                   List<String> footerLines) throws IOException {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             Document doc = new Document(PageSize.A4.rotate(), 36, 36, 36, 36);
@@ -413,41 +429,45 @@ public class ProposalController {
             }
 
             doc.add(table);
-            doc.add(Chunk.NEWLINE);
 
-            // Итоги
-            PdfPTable totals = new PdfPTable(3);
-            totals.setWidthPercentage(100);
-            totals.setWidths(new float[]{60f, 20f, 20f});
-
-            PdfPCell empty = new PdfPCell(new Phrase("")); empty.setBorder(PdfPCell.NO_BORDER);
-            PdfPCell lblQty = new PdfPCell(new Phrase("Всего, шт:",      fonts.BOLD_BLACK_10)); lblQty.setHorizontalAlignment(Element.ALIGN_RIGHT); lblQty.setBorder(PdfPCell.NO_BORDER);
-            PdfPCell valQty = new PdfPCell(new Phrase(String.valueOf(totalQty), fonts.BOLD_BLACK_10)); valQty.setHorizontalAlignment(Element.ALIGN_RIGHT); valQty.setBorder(PdfPCell.NO_BORDER);
-
-            PdfPCell lblSum = new PdfPCell(new Phrase("Итого к оплате, тг:", fonts.BOLD_BLACK_10)); lblSum.setHorizontalAlignment(Element.ALIGN_RIGHT); lblSum.setBorder(PdfPCell.NO_BORDER);
-            PdfPCell valSum = new PdfPCell(new Phrase(num(grand),             fonts.BOLD_BLACK_10)); valSum.setHorizontalAlignment(Element.ALIGN_RIGHT); valSum.setBorder(PdfPCell.NO_BORDER);
-
-            totals.addCell(empty); totals.addCell(lblQty); totals.addCell(valQty);
-            totals.addCell(empty); totals.addCell(lblSum); totals.addCell(valSum);
-            doc.add(totals);
-
-            // «ИТОГО С НДС»
             PdfPTable grandTbl = new PdfPTable(2);
-            grandTbl.setWidthPercentage(40);
-            grandTbl.setHorizontalAlignment(Element.ALIGN_RIGHT);
-            grandTbl.setWidths(new float[]{55f, 45f});
-            PdfPCell g1 = new PdfPCell(new Phrase("ИТОГО С НДС, тг:", fonts.BOLD_WHITE_10));
-            PdfPCell g2 = new PdfPCell(new Phrase(num(grand),         fonts.BOLD_WHITE_10));
-            g1.setBackgroundColor(turquoise); g2.setBackgroundColor(turquoise);
-            g1.setHorizontalAlignment(Element.ALIGN_RIGHT); g2.setHorizontalAlignment(Element.ALIGN_RIGHT);
-            g1.setPadding(6f); g2.setPadding(6f);
-            g1.setBorder(PdfPCell.NO_BORDER); g2.setBorder(PdfPCell.NO_BORDER);
-            doc.add(Chunk.NEWLINE);
-            grandTbl.addCell(g1); grandTbl.addCell(g2);
+// по всей ширине страницы
+            grandTbl.setWidthPercentage(100);
+            grandTbl.setWidths(new float[]{80f, 20f});
+
+
+// текст слева
+            PdfPCell gText = new PdfPCell(new Phrase("Итого, в том числе НДС 12%", fonts.BOLD_WHITE_10));
+            gText.setBackgroundColor(turquoise);
+            gText.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            gText.setVerticalAlignment(Element.ALIGN_MIDDLE);
+            gText.setPadding(6f);
+            gText.setBorderColor(Color.BLACK);
+            gText.setBorderWidth(0.5f);
+
+// сумма справа
+            PdfPCell gSum = new PdfPCell(new Phrase(num(grand), fonts.BOLD_WHITE_10));
+            gSum.setBackgroundColor(turquoise);
+            gSum.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            gSum.setVerticalAlignment(Element.ALIGN_MIDDLE);
+            gSum.setPadding(6f);
+            gSum.setBorderColor(Color.BLACK);
+            gSum.setBorderWidth(0.5f);
+
+// добавляем
+            grandTbl.addCell(gText);
+            grandTbl.addCell(gSum);
+
             doc.add(grandTbl);
 
             doc.add(Chunk.NEWLINE);
-            doc.add(new Phrase("Срок действия КП: 10 рабочих дней. Срок поставки и условия оплаты согласовываются дополнительно.", fonts.BOLD_BLACK_10));
+            for (String line : footerLines) {
+                Paragraph par = new Paragraph("• " + line, fonts.BOLD_BLACK_10);
+                par.setSpacingBefore(2f);
+                par.setSpacingAfter(2f);
+                doc.add(par);
+            }
+
 
             doc.close();
             return baos.toByteArray();
@@ -511,6 +531,67 @@ public class ProposalController {
         } catch(Exception ignore){}
         return null;
     }
+
+    private static List<String> buildFooterLines(ProposalParams p) {
+        List<String> lines = new ArrayList<>();
+
+        boolean vat = Boolean.TRUE.equals(p.getVatIncluded());
+        if (vat) {
+            // при необходимости процент НДС можно вынести в настройки
+            lines.add("Цена с учетом НДС - 12%.");
+        } else {
+            lines.add("Цена указана без НДС.");
+        }
+
+        Integer pre  = nzInt(p.getPrepaymentPercent());
+        Integer bef  = nzInt(p.getBeforeShipmentPercent());
+        Integer post = nzInt(p.getPostPaymentPercent());
+        lines.add(String.format(
+                "Порядок оплаты: %d%% предоплата, %d%% оплата перед отгрузкой, %d%% постоплата.",
+                pre, bef, post
+        ));
+
+        if (!isBlank(p.getPaymentNote())) {
+            lines.add("Условия оплаты (примечание): " + p.getPaymentNote().trim());
+        }
+
+        int prodDays = nzInt(p.getProductionDays());
+        lines.add("Срок изготовления: " + prodDays + " рабочих дней.");
+
+        if (!isBlank(p.getDeliveryTerms())) {
+            lines.add("Условия поставки: " + p.getDeliveryTerms().trim());
+        }
+
+        if (!isBlank(p.getComponents())) {
+            lines.add("Комплектующие: " + p.getComponents().trim());
+        }
+
+        int warranty = nzInt(p.getWarrantyMonths());
+        if (warranty > 0) {
+            lines.add("На поставленный товар действуют стандартные гарантийные условия производителя, " +
+                    "которые составляют " + warranty + " месяцев с момента передачи товара Покупателю.");
+        }
+
+        BigDecimal rate = p.getUsdRate() != null ? p.getUsdRate() : BigDecimal.ZERO;
+        lines.add("Настоящая цена действительна при цене за 1 $ = " +
+                String.format(Locale.forLanguageTag("ru-RU"), "%,.2f", rate) +
+                " тенге по курсу Нацбанка РК, при изменении курса +/- 3%, " +
+                "данное коммерческое предложение является недействительным и подлежит пересчету.");
+
+        if (!isBlank(p.getExtraConditions())) {
+            lines.add("Дополнительные условия: " + p.getExtraConditions().trim());
+        }
+
+        int validDays = nzInt(p.getValidDays());
+        if (validDays > 0) {
+            lines.add("Коммерческое предложение действительно в течение " + validDays + " дней.");
+        }
+
+        return lines;
+    }
+
+    private static int nzInt(Integer v) { return v != null ? v : 0; }
+    private static boolean isBlank(String s) { return s == null || s.trim().isEmpty(); }
 
     // --------- Fonts loader: Inter Bold (Unicode) с фолбэком ---------
     private static final class Fonts {
