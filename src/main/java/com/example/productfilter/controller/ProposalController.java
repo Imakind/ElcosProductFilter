@@ -1,9 +1,13 @@
 package com.example.productfilter.controller;
 
+import com.example.productfilter.dto.ProposalParams;
 import com.example.productfilter.model.Product;
 import com.example.productfilter.util.FileNames;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import org.apache.batik.transcoder.TranscoderInput;
+import org.apache.batik.transcoder.TranscoderOutput;
+import org.apache.batik.transcoder.image.PNGTranscoder;
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
@@ -27,15 +31,20 @@ import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.awt.Color;
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -53,18 +62,6 @@ import com.lowagie.text.pdf.BaseFont;
 import com.lowagie.text.pdf.PdfPCell;
 import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
-
-import org.apache.batik.transcoder.TranscoderInput;
-import org.apache.batik.transcoder.TranscoderOutput;
-import org.apache.batik.transcoder.image.PNGTranscoder;
-
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
-
-import com.example.productfilter.dto.ProposalParams;
-import java.math.BigDecimal;
 
 @Controller
 @RequestMapping("/proposal")
@@ -96,7 +93,10 @@ public class ProposalController {
         if (productSection == null) productSection = new HashMap<>();
         @SuppressWarnings("unchecked")
         Map<Long, String> sections = (Map<Long, String>) session.getAttribute("sections");
-        if (sections == null || sections.isEmpty()) { sections = new LinkedHashMap<>(); sections.put(1L, "Блок 1"); }
+        if (sections == null || sections.isEmpty()) {
+            sections = new LinkedHashMap<>();
+            sections.put(1L, "Блок 1");
+        }
 
         List<String> footerLines = buildFooterLines(params);
 
@@ -104,11 +104,13 @@ public class ProposalController {
         response.setHeader("Content-Disposition", contentDisposition(fnamePdf));
         byte[] pdf = buildPdf(products, cart, coefficientMap, productSection, sections, session, footerLines);
 
-        try (OutputStream out = response.getOutputStream()) { out.write(pdf); }
+        try (OutputStream out = response.getOutputStream()) {
+            out.write(pdf);
+        }
     }
 
     // ---------- Excel ----------
-    @GetMapping("/excel-kp")
+    @PostMapping("/excel-kp")
     public void downloadProposalExcelKp(@ModelAttribute ProposalParams params,
                                         HttpServletResponse response,
                                         HttpSession session) throws IOException {
@@ -123,7 +125,10 @@ public class ProposalController {
         List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
         @SuppressWarnings("unchecked")
         Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("proposalCoefficients");
-        if (cart == null || cart.isEmpty() || products == null) { response.sendRedirect("/cart"); return; }
+        if (cart == null || cart.isEmpty() || products == null) {
+            response.sendRedirect("/cart");
+            return;
+        }
         if (coefficientMap == null) coefficientMap = new HashMap<>();
 
         @SuppressWarnings("unchecked")
@@ -131,7 +136,10 @@ public class ProposalController {
         if (productSection == null) productSection = new HashMap<>();
         @SuppressWarnings("unchecked")
         Map<Long, String> sections = (Map<Long, String>) session.getAttribute("sections");
-        if (sections == null || sections.isEmpty()) { sections = new LinkedHashMap<>(); sections.put(1L, "Блок 1"); }
+        if (sections == null || sections.isEmpty()) {
+            sections = new LinkedHashMap<>();
+            sections.put(1L, "Блок 1");
+        }
 
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", rfc5987ContentDisposition(fnameXlsx));
@@ -151,52 +159,83 @@ public class ProposalController {
 
             DataFormat df = wb.createDataFormat();
 
-            // Все шрифты — Inter, жирные
-            Font fBase = wb.createFont(); fBase.setFontName("Inter"); fBase.setBold(true); fBase.setFontHeightInPoints((short)10);
-            Font fHead = wb.createFont(); fHead.setFontName("Inter"); fHead.setBold(true); fHead.setColor(IndexedColors.WHITE.getIndex());
+            // Базовые шрифты Inter, жирные
+            Font fBase = wb.createFont();
+            fBase.setFontName("Inter");
+            fBase.setBold(true);
+            fBase.setFontHeightInPoints((short) 10);
 
-            CellStyle base = wb.createCellStyle(); base.setFont(fBase);
+            Font fHead = wb.createFont();
+            fHead.setFontName("Inter");
+            fHead.setBold(true);
+            fHead.setColor(IndexedColors.WHITE.getIndex());
 
+            CellStyle base = wb.createCellStyle();
+            base.setFont(fBase);
+
+            // заголовок колонок
             CellStyle th = wb.createCellStyle();
             th.cloneStyleFrom(base);
-            ((XSSFCellStyle) th).setFillForegroundColor(new XSSFColor(new java.awt.Color(10,160,160), null));
+            ((XSSFCellStyle) th).setFillForegroundColor(new XSSFColor(new java.awt.Color(10, 160, 160), null));
             th.setFillPattern(FillPatternType.SOLID_FOREGROUND);
             th.setFont(fHead);
             setBorders(th, BorderStyle.THIN, IndexedColors.WHITE.getIndex());
             th.setAlignment(HorizontalAlignment.CENTER);
             th.setVerticalAlignment(VerticalAlignment.CENTER);
 
-            CellStyle td = wb.createCellStyle(); td.cloneStyleFrom(base);
+            // обычные ячейки
+            CellStyle td = wb.createCellStyle();
+            td.cloneStyleFrom(base);
             setBorders(td, BorderStyle.THIN, IndexedColors.GREY_25_PERCENT.getIndex());
             td.setVerticalAlignment(VerticalAlignment.CENTER);
             td.setWrapText(true);
 
-            CellStyle tdNum = wb.createCellStyle(); tdNum.cloneStyleFrom(td); tdNum.setDataFormat(df.getFormat("# ##0"));
-            CellStyle tdMoney = wb.createCellStyle(); tdMoney.cloneStyleFrom(td); tdMoney.setDataFormat(df.getFormat("# ##0"));
+            CellStyle tdNum = wb.createCellStyle();
+            tdNum.cloneStyleFrom(td);
+            tdNum.setDataFormat(df.getFormat("# ##0"));
 
-            CellStyle grp = wb.createCellStyle(); grp.cloneStyleFrom(base);
-            ((XSSFCellStyle) grp).setFillForegroundColor(new XSSFColor(new java.awt.Color(7,136,136), null));
+            CellStyle tdMoney = wb.createCellStyle();
+            tdMoney.cloneStyleFrom(td);
+            tdMoney.setDataFormat(df.getFormat("# ##0"));
+
+            // строка группы (блок) — как в PDF: голубой фон, чёрная рамка
+            CellStyle grp = wb.createCellStyle();
+            grp.cloneStyleFrom(base);
+            ((XSSFCellStyle) grp).setFillForegroundColor(new XSSFColor(new java.awt.Color(131, 226, 255), null));
             grp.setFillPattern(FillPatternType.SOLID_FOREGROUND);
             grp.setAlignment(HorizontalAlignment.LEFT);
             grp.setVerticalAlignment(VerticalAlignment.CENTER);
             grp.setWrapText(true);
-            setBorders(grp, BorderStyle.THIN, IndexedColors.WHITE.getIndex());
+            setBorders(grp, BorderStyle.THIN, IndexedColors.BLACK.getIndex());
 
-            CellStyle totalLbl = wb.createCellStyle(); totalLbl.cloneStyleFrom(base);
+            CellStyle totalLbl = wb.createCellStyle();
+            totalLbl.cloneStyleFrom(base);
             totalLbl.setAlignment(HorizontalAlignment.RIGHT);
 
-            CellStyle totalGrand = wb.createCellStyle(); totalGrand.cloneStyleFrom(totalLbl);
-            ((XSSFCellStyle) totalGrand).setFillForegroundColor(new XSSFColor(new java.awt.Color(10,160,160), null));
+            // нижняя бирюзовая полоса "Итого, в том числе НДС 12%" — как в PDF
+            CellStyle totalGrand = wb.createCellStyle();
+            totalGrand.cloneStyleFrom(totalLbl);
+            ((XSSFCellStyle) totalGrand).setFillForegroundColor(new XSSFColor(new java.awt.Color(10, 160, 160), null));
             totalGrand.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-            Font fWhiteBold = wb.createFont(); fWhiteBold.setFontName("Inter"); fWhiteBold.setBold(true); fWhiteBold.setColor(IndexedColors.WHITE.getIndex());
+            Font fWhiteBold = wb.createFont();
+            fWhiteBold.setFontName("Inter");
+            fWhiteBold.setBold(true);
+            fWhiteBold.setColor(IndexedColors.WHITE.getIndex());
             totalGrand.setFont(fWhiteBold);
+            totalGrand.setAlignment(HorizontalAlignment.RIGHT);
+            totalGrand.setVerticalAlignment(VerticalAlignment.CENTER);
+            setBorders(totalGrand, BorderStyle.THIN, IndexedColors.BLACK.getIndex());
 
-            CellStyle totalVal = wb.createCellStyle(); totalVal.cloneStyleFrom(totalLbl);
-            totalVal.setDataFormat(df.getFormat("# ##0")); totalVal.setAlignment(HorizontalAlignment.RIGHT);
+            CellStyle totalVal = wb.createCellStyle();
+            totalVal.cloneStyleFrom(totalLbl);
+            totalVal.setDataFormat(df.getFormat("# ##0"));
+            totalVal.setAlignment(HorizontalAlignment.RIGHT);
 
-            int r = 0;
-            Row brandBar = sh.createRow(r++); brandBar.setHeightInPoints(6);
+            int r = 4;
+            Row brandBar = sh.createRow(r++);
+            brandBar.setHeightInPoints(6);
 
+            // "Кому" и шапка
             Row hdr1 = sh.createRow(r++);
             cell(hdr1, 0, "Кому:", base);
             String recipient = Optional.ofNullable((String) session.getAttribute("recipientName")).orElse("");
@@ -215,16 +254,23 @@ public class ProposalController {
                     CreationHelper helper = wb.getCreationHelper();
                     Drawing<?> drawing = sh.createDrawingPatriarch();
                     ClientAnchor anchor = helper.createClientAnchor();
-                    anchor.setCol1(7); anchor.setRow1(hdr1.getRowNum());
+                    anchor.setCol1(7);
+                    anchor.setRow1(1);
                     Picture pict = drawing.createPicture(anchor, picIdx);
-                    pict.resize(1.6, 2.0);
+                    pict.resize(0.2, 0.2);
                 }
-            } catch (Exception ignore) {}
+            } catch (Exception ignore) {
+            }
             r++;
 
+            // заголовок таблицы
             Row head = sh.createRow(r++);
             String[] cols = {"№", "Наименование", "Ед.изм", "Кол-во", "Цена за ед., тг", "Сумма с учётом НДС, тг"};
-            for (int c = 0; c < cols.length; c++) { Cell hc = head.createCell(c); hc.setCellValue(cols[c]); hc.setCellStyle(th); }
+            for (int c = 0; c < cols.length; c++) {
+                Cell hc = head.createCell(c);
+                hc.setCellValue(cols[c]);
+                hc.setCellStyle(th);
+            }
 
             sh.setColumnWidth(0, 256 * 6);
             sh.setColumnWidth(1, 256 * 48);
@@ -246,8 +292,13 @@ public class ProposalController {
             for (Map.Entry<Long, List<Product>> e : bySection.entrySet()) {
                 String blockName = sections.getOrDefault(e.getKey(), "Блок");
                 Row gr = sh.createRow(r++);
-                Cell g0 = gr.createCell(0); g0.setCellValue(blockName); g0.setCellStyle(grp);
-                for (int c = 1; c < 6; c++) { Cell cc = gr.createCell(c); cc.setCellStyle(grp); }
+                Cell g0 = gr.createCell(0);
+                g0.setCellValue(blockName);
+                g0.setCellStyle(grp);
+                for (int c = 1; c < 6; c++) {
+                    Cell cc = gr.createCell(c);
+                    cc.setCellStyle(grp);
+                }
                 sh.addMergedRegion(new CellRangeAddress(gr.getRowNum(), gr.getRowNum(), 0, 5));
 
                 for (Product p : e.getValue()) {
@@ -272,16 +323,17 @@ public class ProposalController {
                 }
             }
 
-            r++;
-            Row it1 = sh.createRow(r++); cell(it1, 3, "Всего, шт:", totalLbl); cell(it1, 4, (double) totalQty, totalVal);
-            Row it2 = sh.createRow(r++); cell(it2, 3, "Итого к оплате, тг:", totalLbl); cell(it2, 4, grand, totalVal);
+            // бирюзовая полоса сразу после последней строки таблицы (без пустой строки)
+            Row it = sh.createRow(r++);
+            for (int c = 0; c <= 5; c++) {
+                Cell cell = it.createCell(c);
+                cell.setCellStyle(totalGrand);
+            }
+            it.getCell(0).setCellValue("Итого, в том числе НДС 12%");
+            sh.addMergedRegion(new CellRangeAddress(it.getRowNum(), it.getRowNum(), 0, 4));
+            it.getCell(5).setCellValue(grand);
 
-            Row it3 = sh.createRow(r++);
-            org.apache.poi.ss.usermodel.Cell gLbl = it3.createCell(3); gLbl.setCellValue("ИТОГО С НДС, тг:"); gLbl.setCellStyle(totalGrand);
-            org.apache.poi.ss.usermodel.Cell gVal = it3.createCell(4); gVal.setCellValue(grand); gVal.setCellStyle(totalGrand);
-            org.apache.poi.ss.usermodel.Cell filler = it3.createCell(5); filler.setCellStyle(totalGrand);
-            sh.addMergedRegion(new CellRangeAddress(it3.getRowNum(), it3.getRowNum(), 4, 5));
-
+            // текст под таблицей
             r++;
             for (String line : footerLines) {
                 Row row = sh.createRow(r++);
@@ -291,19 +343,23 @@ public class ProposalController {
             Row note = sh.createRow(r++);
             sh.addMergedRegion(new CellRangeAddress(note.getRowNum(), note.getRowNum(), 0, 5));
 
-            for (int i = 0; i <= sh.getLastRowNum(); i++) { Row rr = sh.getRow(i); if (rr != null) rr.setHeightInPoints(-1); }
+            for (int i = 0; i <= sh.getLastRowNum(); i++) {
+                Row rr = sh.getRow(i);
+                if (rr != null) rr.setHeightInPoints(-1);
+            }
 
             wb.write(out);
         }
     }
 
+    // ---------- SVG → PNG ----------
     static byte[] svgToPngBytes(Path svgPath, Float widthPx, Float heightPx) throws IOException {
         try (InputStream in = Files.newInputStream(svgPath);
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             PNGTranscoder t = new PNGTranscoder();
-            if (widthPx != null)  t.addTranscodingHint(PNGTranscoder.KEY_WIDTH,  widthPx);
+            if (widthPx != null) t.addTranscodingHint(PNGTranscoder.KEY_WIDTH, widthPx);
             if (heightPx != null) t.addTranscodingHint(PNGTranscoder.KEY_HEIGHT, heightPx);
-            TranscoderInput  input  = new TranscoderInput(in);
+            TranscoderInput input = new TranscoderInput(in);
             TranscoderOutput output = new TranscoderOutput(out);
             t.transcode(input, output);
             out.flush();
@@ -342,19 +398,23 @@ public class ProposalController {
                 img.scaleToFit(200, 100);
                 img.setAlignment(Image.RIGHT);
                 doc.add(img);
-            } catch (Exception ignore) {}
+            } catch (Exception ignore) {
+            }
 
             // «Кому:» и дата
             PdfPTable hdr = new PdfPTable(2);
             hdr.setWidthPercentage(100);
             hdr.setWidths(new float[]{70, 10});
-            PdfPCell left = new PdfPCell(); left.setBorder(PdfPCell.NO_BORDER);
-            PdfPCell right = new PdfPCell(); right.setBorder(PdfPCell.NO_BORDER); right.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            PdfPCell left = new PdfPCell();
+            left.setBorder(PdfPCell.NO_BORDER);
+            PdfPCell right = new PdfPCell();
+            right.setBorder(PdfPCell.NO_BORDER);
+            right.setHorizontalAlignment(Element.ALIGN_RIGHT);
 
             String recipient = Optional.ofNullable((String) session.getAttribute("recipientName")).orElse("");
             Paragraph p1 = new Paragraph();
             p1.add(new Phrase("Кому: ", fonts.BOLD_BLACK_10));
-            p1.add(new Phrase(recipient,   fonts.BOLD_BLACK_10));
+            p1.add(new Phrase(recipient, fonts.BOLD_BLACK_10));
             p1.setSpacingAfter(10f);
             left.addElement(p1);
             left.addElement(new Phrase("Мы благодарим Вас за Ваш запрос. Просим рассмотреть наше ценовое предложение", fonts.BOLD_BLACK_10));
@@ -362,7 +422,8 @@ public class ProposalController {
             String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"));
             right.addElement(new Phrase(dateStr, fonts.BOLD_BLACK_10));
 
-            hdr.addCell(left); hdr.addCell(right);
+            hdr.addCell(left);
+            hdr.addCell(right);
             doc.add(hdr);
             doc.add(Chunk.NEWLINE);
 
@@ -376,13 +437,12 @@ public class ProposalController {
             table.setWidthPercentage(100);
             table.setWidths(new float[]{6f, 48f, 10f, 10f, 18f, 22f});
 
-            Color turquoise = new Color(10,160,160);
-            // заголовок остаётся прежним
-            addHeaderCell(table, "№",                      fonts.BOLD_WHITE_10, turquoise);
-            addHeaderCell(table, "Наименование",           fonts.BOLD_WHITE_10, turquoise);
-            addHeaderCell(table, "Ед.изм",                 fonts.BOLD_WHITE_10, turquoise);
-            addHeaderCell(table, "Кол-во",                 fonts.BOLD_WHITE_10, turquoise);
-            addHeaderCell(table, "Цена за ед., тг",        fonts.BOLD_WHITE_10, turquoise);
+            Color turquoise = new Color(10, 160, 160);
+            addHeaderCell(table, "№", fonts.BOLD_WHITE_10, turquoise);
+            addHeaderCell(table, "Наименование", fonts.BOLD_WHITE_10, turquoise);
+            addHeaderCell(table, "Ед.изм", fonts.BOLD_WHITE_10, turquoise);
+            addHeaderCell(table, "Кол-во", fonts.BOLD_WHITE_10, turquoise);
+            addHeaderCell(table, "Цена за ед., тг", fonts.BOLD_WHITE_10, turquoise);
             addHeaderCell(table, "Сумма с учётом НДС, тг", fonts.BOLD_WHITE_10, turquoise);
 
             Map<Long, List<Product>> bySection = new LinkedHashMap<>();
@@ -398,14 +458,13 @@ public class ProposalController {
             Color groupBg = new Color(131, 226, 255);
             for (Map.Entry<Long, List<Product>> e : bySection.entrySet()) {
                 String blockName = sections.getOrDefault(e.getKey(), "Блок");
-                // строка блока: текст тоже в brandColor
-                PdfPCell grp = new PdfPCell(new Phrase(blockName, BRAND_10));
-                grp.setColspan(6);
-                grp.setBackgroundColor(groupBg);
-                grp.setPadding(6f);
-                grp.setBorderColor(Color.BLACK);
-                grp.setBorderWidth(0.5f);
-                table.addCell(grp);
+                PdfPCell grpCell = new PdfPCell(new Phrase(blockName, BRAND_10));
+                grpCell.setColspan(6);
+                grpCell.setBackgroundColor(groupBg);
+                grpCell.setPadding(6f);
+                grpCell.setBorderColor(Color.BLACK);
+                grpCell.setBorderWidth(0.5f);
+                table.addCell(grpCell);
 
                 for (Product p : e.getValue()) {
                     int qty = cart.getOrDefault(p.getProductId(), 0);
@@ -415,13 +474,12 @@ public class ProposalController {
                     double price = base * k;
                     double sum = price * qty;
 
-                    // все ячейки данных таблицы с шрифтом BRAND_10 (rgb(7,124,149))
                     addBodyCell(table, String.valueOf(idx++), Element.ALIGN_CENTER, BRAND_10);
-                    addBodyCell(table, nz(p.getName()),        Element.ALIGN_LEFT,   BRAND_10);
-                    addBodyCell(table, "шт",                   Element.ALIGN_CENTER, BRAND_10);
-                    addBodyCell(table, String.valueOf(qty),    Element.ALIGN_RIGHT,  BRAND_10);
-                    addBodyCell(table, num(price),             Element.ALIGN_RIGHT,  BRAND_10);
-                    addBodyCell(table, num(sum),               Element.ALIGN_RIGHT,  BRAND_10);
+                    addBodyCell(table, nz(p.getName()), Element.ALIGN_LEFT, BRAND_10);
+                    addBodyCell(table, "шт", Element.ALIGN_CENTER, BRAND_10);
+                    addBodyCell(table, String.valueOf(qty), Element.ALIGN_RIGHT, BRAND_10);
+                    addBodyCell(table, num(price), Element.ALIGN_RIGHT, BRAND_10);
+                    addBodyCell(table, num(sum), Element.ALIGN_RIGHT, BRAND_10);
 
                     totalQty += qty;
                     grand += sum;
@@ -430,13 +488,11 @@ public class ProposalController {
 
             doc.add(table);
 
+            // нижняя бирюзовая полоса
             PdfPTable grandTbl = new PdfPTable(2);
-// по всей ширине страницы
             grandTbl.setWidthPercentage(100);
             grandTbl.setWidths(new float[]{80f, 20f});
 
-
-// текст слева
             PdfPCell gText = new PdfPCell(new Phrase("Итого, в том числе НДС 12%", fonts.BOLD_WHITE_10));
             gText.setBackgroundColor(turquoise);
             gText.setHorizontalAlignment(Element.ALIGN_RIGHT);
@@ -445,7 +501,6 @@ public class ProposalController {
             gText.setBorderColor(Color.BLACK);
             gText.setBorderWidth(0.5f);
 
-// сумма справа
             PdfPCell gSum = new PdfPCell(new Phrase(num(grand), fonts.BOLD_WHITE_10));
             gSum.setBackgroundColor(turquoise);
             gSum.setHorizontalAlignment(Element.ALIGN_RIGHT);
@@ -454,7 +509,6 @@ public class ProposalController {
             gSum.setBorderColor(Color.BLACK);
             gSum.setBorderWidth(0.5f);
 
-// добавляем
             grandTbl.addCell(gText);
             grandTbl.addCell(gSum);
 
@@ -467,7 +521,6 @@ public class ProposalController {
                 par.setSpacingAfter(2f);
                 doc.add(par);
             }
-
 
             doc.close();
             return baos.toByteArray();
@@ -498,37 +551,83 @@ public class ProposalController {
     }
 
     // ---------- helpers ----------
-    private static void setBorders(org.apache.poi.ss.usermodel.CellStyle st, org.apache.poi.ss.usermodel.BorderStyle bs, short color) {
-        st.setBorderTop(bs); st.setTopBorderColor(color);
-        st.setBorderBottom(bs); st.setBottomBorderColor(color);
-        st.setBorderLeft(bs); st.setLeftBorderColor(color);
-        st.setBorderRight(bs); st.setRightBorderColor(color);
+    private static void setBorders(CellStyle st, BorderStyle bs, short color) {
+        st.setBorderTop(bs);
+        st.setTopBorderColor(color);
+        st.setBorderBottom(bs);
+        st.setBottomBorderColor(color);
+        st.setBorderLeft(bs);
+        st.setLeftBorderColor(color);
+        st.setBorderRight(bs);
+        st.setRightBorderColor(color);
     }
-    private static Cell cell(Row r, int c, String v, CellStyle s){ Cell x=r.createCell(c); x.setCellValue(v); x.setCellStyle(s); return x; }
-    private static Cell cell(Row r, int c, double v, CellStyle s){ Cell x=r.createCell(c); x.setCellValue(v); x.setCellStyle(s); return x; }
 
-    private static String nz(String s){ return s==null? "": s; }
-    private static String num(double v){ return String.format(Locale.forLanguageTag("ru-RU"), "%,.2f", v); }
+    private static Cell cell(Row r, int c, String v, CellStyle s) {
+        Cell x = r.createCell(c);
+        x.setCellValue(v);
+        x.setCellStyle(s);
+        return x;
+    }
+
+    private static Cell cell(Row r, int c, double v, CellStyle s) {
+        Cell x = r.createCell(c);
+        x.setCellValue(v);
+        x.setCellStyle(s);
+        return x;
+    }
+
+    private static String nz(String s) {
+        return s == null ? "" : s;
+    }
+
+    private static String num(double v) {
+        return String.format(Locale.forLanguageTag("ru-RU"), "%,.2f", v);
+    }
 
     private static String ensurePdfExt(String name) {
         if (name == null || name.isBlank()) return "file.pdf";
         return name.toLowerCase().endsWith(".pdf") ? name : name + ".pdf";
     }
+
     private static String contentDisposition(String filenameUtf8) {
         String ascii = filenameUtf8.replace('"', '\'').replaceAll("[^A-Za-z0-9._-]", "_");
         String encoded = URLEncoder.encode(filenameUtf8, StandardCharsets.UTF_8).replace("+", "%20");
         return "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + encoded;
     }
-    private static String rfc5987ContentDisposition(String filenameUtf8) { return contentDisposition(filenameUtf8); }
 
-    private static byte[] tryReadLogo(HttpSession session){
+    private static String rfc5987ContentDisposition(String filenameUtf8) {
+        return contentDisposition(filenameUtf8);
+    }
+
+    /**
+     * Читает логотип.
+     * 1) logoPath из сессии (PNG/JPEG);
+     * 2) /static/img/elcos.png из classpath;
+     * 3) elcos_logo.svg на диске -> svgToPngBytes (тот же, что для PDF).
+     */
+    private static byte[] tryReadLogo(HttpSession session) {
+        // 1) путь в сессии
         Object p = session.getAttribute("logoPath");
-        if (p instanceof String path){
-            try { return java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)); } catch(Exception ignore){}
+        if (p instanceof String path) {
+            try {
+                return Files.readAllBytes(Paths.get(path));
+            } catch (Exception ignore) {
+            }
         }
-        try (InputStream is = ProposalController.class.getResourceAsStream("/static/img/elcos.png")){
+
+        // 2) PNG в resources/static/img
+        try (InputStream is = ProposalController.class.getResourceAsStream("/static/img/elcos.png")) {
             if (is != null) return is.readAllBytes();
-        } catch(Exception ignore){}
+        } catch (Exception ignore) {
+        }
+
+        // 3) SVG-файл, как в PDF
+        try {
+            Path svg = Paths.get("C:\\Users\\alikt\\Downloads\\product-filter\\src\\main\\resources\\elcos_logo.svg");
+            return svgToPngBytes(svg, 500f, null);
+        } catch (Exception ignore) {
+        }
+
         return null;
     }
 
@@ -537,14 +636,13 @@ public class ProposalController {
 
         boolean vat = Boolean.TRUE.equals(p.getVatIncluded());
         if (vat) {
-            // при необходимости процент НДС можно вынести в настройки
             lines.add("Цена с учетом НДС - 12%.");
         } else {
             lines.add("Цена указана без НДС.");
         }
 
-        Integer pre  = nzInt(p.getPrepaymentPercent());
-        Integer bef  = nzInt(p.getBeforeShipmentPercent());
+        Integer pre = nzInt(p.getPrepaymentPercent());
+        Integer bef = nzInt(p.getBeforeShipmentPercent());
         Integer post = nzInt(p.getPostPaymentPercent());
         lines.add(String.format(
                 "Порядок оплаты: %d%% предоплата, %d%% оплата перед отгрузкой, %d%% постоплата.",
@@ -590,8 +688,13 @@ public class ProposalController {
         return lines;
     }
 
-    private static int nzInt(Integer v) { return v != null ? v : 0; }
-    private static boolean isBlank(String s) { return s == null || s.trim().isEmpty(); }
+    private static int nzInt(Integer v) {
+        return v != null ? v : 0;
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
+    }
 
     // --------- Fonts loader: Inter Bold (Unicode) с фолбэком ---------
     private static final class Fonts {
@@ -604,11 +707,10 @@ public class ProposalController {
         }
 
         static Fonts load() {
-            // ожидаем файлы в src/main/resources/fonts/
             byte[] inter24Bold = res("/fonts/Inter_24pt-Bold.ttf");
-            byte[] interBold   = res("/fonts/Inter-Bold.ttf");
-            byte[] interOtf    = res("/fonts/Inter-Bold.otf");
-            byte[] dejavuBold  = res("/fonts/DejaVuSans-Bold.ttf");
+            byte[] interBold = res("/fonts/Inter-Bold.ttf");
+            byte[] interOtf = res("/fonts/Inter-Bold.otf");
+            byte[] dejavuBold = res("/fonts/DejaVuSans-Bold.ttf");
 
             byte[] chosen = firstNonNull(inter24Bold, interBold, interOtf, dejavuBold);
             if (chosen == null) {
@@ -616,7 +718,6 @@ public class ProposalController {
             }
 
             try {
-                // имя должно оканчиваться на .ttf/.otf при передаче byte[]
                 BaseFont bf = BaseFont.createFont(
                         "inter-bold.ttf",
                         BaseFont.IDENTITY_H,
@@ -641,6 +742,7 @@ public class ProposalController {
                 return null;
             }
         }
+
         private static byte[] firstNonNull(byte[]... arr) {
             for (byte[] a : arr) if (a != null) return a;
             return null;
