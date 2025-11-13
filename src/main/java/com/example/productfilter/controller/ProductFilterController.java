@@ -626,74 +626,74 @@ public class ProductFilterController {
         }
     }
 
-    @GetMapping("/proposal/excel-kp")
-    public void downloadProposalExcelKp(HttpServletResponse response, HttpSession session) throws IOException {
-        String projectName = Optional.ofNullable((String) session.getAttribute("projectName")).orElse("Проект");
-        String user = FileNames.currentUser();
-        String fnameXlsx = FileNames.kpXlsx(projectName, user);
-
-        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("proposalCart");
-        List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
-        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("proposalCoefficients");
-        if (cart == null || products == null || cart.isEmpty()) { response.sendRedirect("/cart"); return; }
-        if (coefficientMap == null) coefficientMap = new HashMap<>();
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (Workbook workbook = new XSSFWorkbook()) {
-            Sheet sheet = workbook.createSheet("Коммерческое предложение");
-            sheet.setDefaultColumnWidth(20);
-
-            DataFormat df = workbook.createDataFormat();
-            CellStyle num1 = workbook.createCellStyle(); num1.setDataFormat(df.getFormat("# ##0.0"));
-            CellStyle int0 = workbook.createCellStyle(); int0.setDataFormat(df.getFormat("# ##0"));
-
-            Row header = sheet.createRow(0);
-            String[] columns = {"№","Наименование","Артикул","Бренд","Кол-во","Цена","Сумма"};
-            for (int i = 0; i < columns.length; i++) header.createCell(i).setCellValue(columns[i]);
-
-            int rowIdx = 1, index = 1, totalQty = 0;
-            double totalSum = 0.0;
-
-            for (Product p : products) {
-                int qty = cart.getOrDefault(p.getProductId(), 1);
-                double basePrice = p.getPrice() != null ? p.getPrice() : 0.0;
-                double coeff = coefficientMap.getOrDefault(p.getProductId(), 1.0);
-                double price = basePrice * coeff;
-                double sum = price * qty;
-
-                Row r = sheet.createRow(rowIdx++);
-                r.createCell(0).setCellValue(index++);
-                r.createCell(1).setCellValue(p.getName());
-                r.createCell(2).setCellValue(p.getArticleCode());
-                r.createCell(3).setCellValue(p.getBrand().getBrandName());
-
-                Cell c;
-                c = r.createCell(4); c.setCellValue(qty);   c.setCellStyle(int0);
-                c = r.createCell(5); c.setCellValue(price); c.setCellStyle(num1);
-                c = r.createCell(6); c.setCellValue(sum);   c.setCellStyle(num1);
-
-                totalQty += qty;
-                totalSum += sum;
-            }
-
-            Row totalRow = sheet.createRow(rowIdx);
-            totalRow.createCell(0).setCellValue("Итого:");
-            sheet.addMergedRegion(new CellRangeAddress(rowIdx, rowIdx, 0, 3));
-            Cell cq = totalRow.createCell(4); cq.setCellValue(totalQty); cq.setCellStyle(int0);
-            Cell cs = totalRow.createCell(6); cs.setCellValue(totalSum); cs.setCellStyle(num1);
-
-            workbook.write(baos);
-        }
-
-        byte[] xlsx = baos.toByteArray();
-        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        response.setHeader("Content-Disposition", rfc5987ContentDisposition(fnameXlsx));
-        response.setContentLength(xlsx.length);
-
-        try (OutputStream out = response.getOutputStream()) {
-            out.write(xlsx);
-        }
-    }
+//    @GetMapping("/proposal/excel-kp")
+//    public void downloadProposalExcelKp(HttpServletResponse response, HttpSession session) throws IOException {
+//        String projectName = Optional.ofNullable((String) session.getAttribute("projectName")).orElse("Проект");
+//        String user = FileNames.currentUser();
+//        String fnameXlsx = FileNames.kpXlsx(projectName, user);
+//
+//        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("proposalCart");
+//        List<Product> products = (List<Product>) session.getAttribute("proposalProducts");
+//        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("proposalCoefficients");
+//        if (cart == null || products == null || cart.isEmpty()) { response.sendRedirect("/cart"); return; }
+//        if (coefficientMap == null) coefficientMap = new HashMap<>();
+//
+//        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+//        try (Workbook workbook = new XSSFWorkbook()) {
+//            Sheet sheet = workbook.createSheet("Коммерческое предложение");
+//            sheet.setDefaultColumnWidth(20);
+//
+//            DataFormat df = workbook.createDataFormat();
+//            CellStyle num1 = workbook.createCellStyle(); num1.setDataFormat(df.getFormat("# ##0.0"));
+//            CellStyle int0 = workbook.createCellStyle(); int0.setDataFormat(df.getFormat("# ##0"));
+//
+//            Row header = sheet.createRow(0);
+//            String[] columns = {"№","Наименование","Артикул","Бренд","Кол-во","Цена","Сумма"};
+//            for (int i = 0; i < columns.length; i++) header.createCell(i).setCellValue(columns[i]);
+//
+//            int rowIdx = 1, index = 1, totalQty = 0;
+//            double totalSum = 0.0;
+//
+//            for (Product p : products) {
+//                int qty = cart.getOrDefault(p.getProductId(), 1);
+//                double basePrice = p.getPrice() != null ? p.getPrice() : 0.0;
+//                double coeff = coefficientMap.getOrDefault(p.getProductId(), 1.0);
+//                double price = basePrice * coeff;
+//                double sum = price * qty;
+//
+//                Row r = sheet.createRow(rowIdx++);
+//                r.createCell(0).setCellValue(index++);
+//                r.createCell(1).setCellValue(p.getName());
+//                r.createCell(2).setCellValue(p.getArticleCode());
+//                r.createCell(3).setCellValue(p.getBrand().getBrandName());
+//
+//                Cell c;
+//                c = r.createCell(4); c.setCellValue(qty);   c.setCellStyle(int0);
+//                c = r.createCell(5); c.setCellValue(price); c.setCellStyle(num1);
+//                c = r.createCell(6); c.setCellValue(sum);   c.setCellStyle(num1);
+//
+//                totalQty += qty;
+//                totalSum += sum;
+//            }
+//
+//            Row totalRow = sheet.createRow(rowIdx);
+//            totalRow.createCell(0).setCellValue("Итого:");
+//            sheet.addMergedRegion(new CellRangeAddress(rowIdx, rowIdx, 0, 3));
+//            Cell cq = totalRow.createCell(4); cq.setCellValue(totalQty); cq.setCellStyle(int0);
+//            Cell cs = totalRow.createCell(6); cs.setCellValue(totalSum); cs.setCellStyle(num1);
+//
+//            workbook.write(baos);
+//        }
+//
+//        byte[] xlsx = baos.toByteArray();
+//        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+//        response.setHeader("Content-Disposition", rfc5987ContentDisposition(fnameXlsx));
+//        response.setContentLength(xlsx.length);
+//
+//        try (OutputStream out = response.getOutputStream()) {
+//            out.write(xlsx);
+//        }
+//    }
 
     @GetMapping("/proposal/download/{filename}")
     @ResponseBody
