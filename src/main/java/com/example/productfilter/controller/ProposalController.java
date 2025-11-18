@@ -212,7 +212,7 @@ public class ProposalController {
             totalLbl.cloneStyleFrom(base);
             totalLbl.setAlignment(HorizontalAlignment.RIGHT);
 
-            // нижняя бирюзовая полоса "Итого, в том числе НДС 12%" — как в PDF
+            // нижняя бирюзовая полоса "Итого, в том числе НДС 12%"
             CellStyle totalGrand = wb.createCellStyle();
             totalGrand.cloneStyleFrom(totalLbl);
             ((XSSFCellStyle) totalGrand).setFillForegroundColor(new XSSFColor(new java.awt.Color(10, 160, 160), null));
@@ -323,7 +323,7 @@ public class ProposalController {
                 }
             }
 
-            // бирюзовая полоса сразу после последней строки таблицы (без пустой строки)
+            // бирюзовая полоса сразу после последней строки таблицы
             Row it = sh.createRow(r++);
             for (int c = 0; c <= 5; c++) {
                 Cell cell = it.createCell(c);
@@ -445,6 +445,7 @@ public class ProposalController {
             addHeaderCell(table, "Цена за ед., тг", fonts.BOLD_WHITE_10, turquoise);
             addHeaderCell(table, "Сумма с учётом НДС, тг", fonts.BOLD_WHITE_10, turquoise);
 
+            // группировка по секциям (папкам)
             Map<Long, List<Product>> bySection = new LinkedHashMap<>();
             for (Product p : products) {
                 long sid = Optional.ofNullable(productSection.get(p.getProductId())).orElse(1L);
@@ -455,40 +456,53 @@ public class ProposalController {
             long totalQty = 0;
             double grand = 0.0;
 
-            Color groupBg = new Color(131, 226, 255);
             for (Map.Entry<Long, List<Product>> e : bySection.entrySet()) {
-                String blockName = sections.getOrDefault(e.getKey(), "Блок");
-                PdfPCell grpCell = new PdfPCell(new Phrase(blockName, BRAND_10));
-                grpCell.setColspan(6);
-                grpCell.setBackgroundColor(groupBg);
-                grpCell.setPadding(6f);
-                grpCell.setBorderColor(Color.BLACK);
-                grpCell.setBorderWidth(0.5f);
-                table.addCell(grpCell);
+                String blockName = sections.getOrDefault(e.getKey(), "Блок").trim();
+
+                // пропускаем корневую папку "Общий" (цену по ней не считаем)
+                if ("общий".equalsIgnoreCase(blockName)) {
+                    continue;
+                }
+
+                double blockSumRaw = 0.0;
 
                 for (Product p : e.getValue()) {
                     int qty = cart.getOrDefault(p.getProductId(), 0);
                     if (qty <= 0) continue;
+
                     double base = Optional.ofNullable(p.getPrice()).orElse(0.0);
                     double k = coeffs.getOrDefault(p.getProductId(), 1.0);
                     double price = base * k;
                     double sum = price * qty;
 
-                    addBodyCell(table, String.valueOf(idx++), Element.ALIGN_CENTER, BRAND_10);
-                    addBodyCell(table, nz(p.getName()), Element.ALIGN_LEFT, BRAND_10);
-                    addBodyCell(table, "шт", Element.ALIGN_CENTER, BRAND_10);
-                    addBodyCell(table, String.valueOf(qty), Element.ALIGN_RIGHT, BRAND_10);
-                    addBodyCell(table, num(price), Element.ALIGN_RIGHT, BRAND_10);
-                    addBodyCell(table, num(sum), Element.ALIGN_RIGHT, BRAND_10);
-
-                    totalQty += qty;
-                    grand += sum;
+                    blockSumRaw += sum;
                 }
+
+                // если по папке нет позиций в корзине — пропускаем
+                if (blockSumRaw <= 0.0) {
+                    continue;
+                }
+
+                // трактуем папку как одну позицию:
+                // Кол-во = 1, Цена за ед. = общая сумма, Сумма = общая сумма
+                long qtyDisplay = 1;
+                double priceDisplay = blockSumRaw;
+                double sumDisplay = blockSumRaw;
+
+                addBodyCell(table, String.valueOf(idx++), Element.ALIGN_CENTER, BRAND_10);
+                addBodyCell(table, blockName, Element.ALIGN_LEFT, BRAND_10);
+                addBodyCell(table, "компл", Element.ALIGN_CENTER, BRAND_10);
+                addBodyCell(table, String.valueOf(qtyDisplay), Element.ALIGN_RIGHT, BRAND_10);
+                addBodyCell(table, num(priceDisplay), Element.ALIGN_RIGHT, BRAND_10);
+                addBodyCell(table, num(sumDisplay), Element.ALIGN_RIGHT, BRAND_10);
+
+                totalQty += qtyDisplay;
+                grand += sumDisplay;
             }
 
             doc.add(table);
 
-            // нижняя бирюзовая полоса
+            // нижняя бирюзовая полоса (итого)
             PdfPTable grandTbl = new PdfPTable(2);
             grandTbl.setWidthPercentage(100);
             grandTbl.setWidths(new float[]{80f, 20f});
@@ -603,10 +617,9 @@ public class ProposalController {
      * Читает логотип.
      * 1) logoPath из сессии (PNG/JPEG);
      * 2) /static/img/elcos.png из classpath;
-     * 3) elcos_logo.svg на диске -> svgToPngBytes (тот же, что для PDF).
+     * 3) elcos_logo.svg на диске -> svgToPngBytes.
      */
     private static byte[] tryReadLogo(HttpSession session) {
-        // 1) путь в сессии
         Object p = session.getAttribute("logoPath");
         if (p instanceof String path) {
             try {
@@ -615,13 +628,11 @@ public class ProposalController {
             }
         }
 
-        // 2) PNG в resources/static/img
         try (InputStream is = ProposalController.class.getResourceAsStream("/static/img/elcos.png")) {
             if (is != null) return is.readAllBytes();
         } catch (Exception ignore) {
         }
 
-        // 3) SVG-файл, как в PDF
         try {
             Path svg = Paths.get("C:\\Users\\alikt\\Downloads\\product-filter\\src\\main\\resources\\elcos_logo.svg");
             return svgToPngBytes(svg, 500f, null);

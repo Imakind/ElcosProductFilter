@@ -340,7 +340,7 @@
                             <td>Курс Евро</td>
                             <td>
                                 <input id="calc-eur-rate" type="number" step="0.01"
-                                       class="form-control form-control-sm" readonly>
+                                       class="form-control form-control-sm">
                             </td>
                             <td>0</td>
                             <td></td>
@@ -910,8 +910,9 @@
 
         // ВРЕМЕННО: фиксированный курс.
         // TODO: здесь можно сделать запрос к API НБ РК и подставлять живой курс.
-        const EUR_RATE_DEFAULT = 500; // тг за 1 €
-        eurInput.value = EUR_RATE_DEFAULT.toFixed(2);
+        if (!eurInput.value) {
+            eurInput.value = '500.00'; // пример дефолтного курса EUR, можно поменять
+        }// тг за 1 €
 
         const ids = [
             'calc-height','calc-width','calc-depth','calc-thickness',
