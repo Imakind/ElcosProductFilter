@@ -442,62 +442,84 @@ public class ProposalController {
             addHeaderCell(table, "Наименование", fonts.BOLD_WHITE_10, turquoise);
             addHeaderCell(table, "Ед.изм", fonts.BOLD_WHITE_10, turquoise);
             addHeaderCell(table, "Кол-во", fonts.BOLD_WHITE_10, turquoise);
-            addHeaderCell(table, "Цена за ед., тг", fonts.BOLD_WHITE_10, turquoise);
+            addHeaderCell(table, "Цена за ед. НДС, тг", fonts.BOLD_WHITE_10, turquoise);
             addHeaderCell(table, "Сумма с учётом НДС, тг", fonts.BOLD_WHITE_10, turquoise);
 
-            // группировка по секциям (папкам)
-            Map<Long, List<Product>> bySection = new LinkedHashMap<>();
-            for (Product p : products) {
-                long sid = Optional.ofNullable(productSection.get(p.getProductId())).orElse(1L);
-                bySection.computeIfAbsent(sid, k -> new ArrayList<>()).add(p);
+            // ====== НОВОЕ: иерархия папок и суммы по папкам ======
+
+            // родительские связи секций из сессии
+            @SuppressWarnings("unchecked")
+            Map<Long, Long> sectionParent =
+                    (Map<Long, Long>) session.getAttribute("sectionParent");
+            if (sectionParent == null) {
+                sectionParent = new HashMap<>();
+            }
+            // гарантируем наличие корня
+            sectionParent.putIfAbsent(1L, null);
+
+            // строим узлы дерева по sections + sectionParent
+            Map<Long, PdfSecNode> secNodes = new LinkedHashMap<>();
+            for (Map.Entry<Long, String> e : sections.entrySet()) {
+                Long id = e.getKey();
+                String name = e.getValue();
+                Long parentId = sectionParent.get(id);
+                PdfSecNode node = new PdfSecNode(id, name, parentId);
+                secNodes.put(id, node);
             }
 
-            int idx = 1;
-            long totalQty = 0;
+            // связи родитель → дети и список корней
+            List<PdfSecNode> roots = new ArrayList<>();
+            for (PdfSecNode node : secNodes.values()) {
+                if (node.parentId == null || !secNodes.containsKey(node.parentId)) {
+                    roots.add(node);
+                } else {
+                    PdfSecNode parent = secNodes.get(node.parentId);
+                    parent.children.add(node);
+                }
+            }
+            if (roots.isEmpty() && secNodes.containsKey(1L)) {
+                roots.add(secNodes.get(1L));
+            }
+
+            // считаем суммы по товарам: directSum в секции и общий grand
             double grand = 0.0;
+            for (Product p : products) {
+                Integer pid = p.getProductId();
+                if (pid == null) continue;
 
-            for (Map.Entry<Long, List<Product>> e : bySection.entrySet()) {
-                String blockName = sections.getOrDefault(e.getKey(), "Блок").trim();
+                int qty = cart.getOrDefault(pid, 0);
+                if (qty <= 0) continue;
 
-                // пропускаем корневую папку "Общий" (цену по ней не считаем)
-                if ("общий".equalsIgnoreCase(blockName)) {
-                    continue;
+                double base = Optional.ofNullable(p.getPrice()).orElse(0.0);
+                double k = coeffs.getOrDefault(pid, 1.0);
+                double price = base * k;
+                double sum = price * qty;
+
+                grand += sum;
+
+                long sid = Optional.ofNullable(productSection.get(pid)).orElse(1L);
+                PdfSecNode node = secNodes.get(sid);
+                if (node == null) {
+                    // safety: если нет такой секции, кидаем в «Общий»
+                    node = secNodes.computeIfAbsent(
+                            1L,
+                            id -> new PdfSecNode(1L, sections.getOrDefault(1L, "Общий"), null)
+                    );
                 }
+                node.directSum += sum;
+            }
 
-                double blockSumRaw = 0.0;
+            // пост-ордёр: totalSum = directSum + суммы дочерних секций
+            for (PdfSecNode root : roots) {
+                calcTotals(root, 0);
+            }
 
-                for (Product p : e.getValue()) {
-                    int qty = cart.getOrDefault(p.getProductId(), 0);
-                    if (qty <= 0) continue;
-
-                    double base = Optional.ofNullable(p.getPrice()).orElse(0.0);
-                    double k = coeffs.getOrDefault(p.getProductId(), 1.0);
-                    double price = base * k;
-                    double sum = price * qty;
-
-                    blockSumRaw += sum;
-                }
-
-                // если по папке нет позиций в корзине — пропускаем
-                if (blockSumRaw <= 0.0) {
-                    continue;
-                }
-
-                // трактуем папку как одну позицию:
-                // Кол-во = 1, Цена за ед. = общая сумма, Сумма = общая сумма
-                long qtyDisplay = 1;
-                double priceDisplay = blockSumRaw;
-                double sumDisplay = blockSumRaw;
-
-                addBodyCell(table, String.valueOf(idx++), Element.ALIGN_CENTER, BRAND_10);
-                addBodyCell(table, blockName, Element.ALIGN_LEFT, BRAND_10);
-                addBodyCell(table, "компл", Element.ALIGN_CENTER, BRAND_10);
-                addBodyCell(table, String.valueOf(qtyDisplay), Element.ALIGN_RIGHT, BRAND_10);
-                addBodyCell(table, num(priceDisplay), Element.ALIGN_RIGHT, BRAND_10);
-                addBodyCell(table, num(sumDisplay), Element.ALIGN_RIGHT, BRAND_10);
-
-                totalQty += qtyDisplay;
-                grand += sumDisplay;
+            // выводим строки по дереву: только папки, без товаров
+            // — папка с подпапками (и суммами в них) → просто заголовок (фон #CCFFFF, colspan=6, без сумм)
+            // — папка без подпапок → как позиция: 1 компл, цена = сумма, сумма = сумма
+            int[] indexCounter = new int[]{1};
+            for (PdfSecNode root : roots) {
+                renderSectionTreeRows(table, root, fonts, BRAND_10, indexCounter);
             }
 
             doc.add(table);
@@ -541,6 +563,112 @@ public class ProposalController {
         } catch (DocumentException e) {
             throw new IOException("Ошибка генерации PDF", e);
         }
+    }
+
+    // Узел иерархии для PDF
+    private static final class PdfSecNode {
+        final Long id;
+        final String name;
+        final Long parentId;
+        final List<PdfSecNode> children = new ArrayList<>();
+
+        double directSum; // сумма только своих товаров
+        double totalSum;  // directSum + суммы всех детей
+        int depth;        // уровень вложенности (0 = корень)
+
+        PdfSecNode(Long id, String name, Long parentId) {
+            this.id = id;
+            this.name = name != null ? name : "";
+            this.parentId = parentId;
+        }
+    }
+
+    // рекурсивно считаем totalSum и глубину
+    private static void calcTotals(PdfSecNode node, int depth) {
+        node.depth = depth;
+        double total = node.directSum;
+        for (PdfSecNode ch : node.children) {
+            calcTotals(ch, depth + 1);
+            total += ch.totalSum;
+        }
+        node.totalSum = total;
+    }
+
+    // выводит строки по дереву: группы и листья
+    private static void renderSectionTreeRows(PdfPTable table,
+                                              PdfSecNode node,
+                                              Fonts fonts,
+                                              com.lowagie.text.Font rowFont,
+                                              int[] indexCounter) {
+        final double EPS = 0.0001;
+
+        if (node.totalSum > EPS) {
+            boolean hasChildrenWithTotal = false;
+            for (PdfSecNode ch : node.children) {
+                if (ch.totalSum > EPS) {
+                    hasChildrenWithTotal = true;
+                    break;
+                }
+            }
+
+            if (hasChildrenWithTotal) {
+                // есть дочерние папки с суммой → это чисто заголовок раздела
+                addFolderGroupRow(table, node, fonts.BOLD_BLACK_10);
+            } else {
+                // листовая папка → одна строка с суммой папки
+                addFolderLeafRow(table, node, rowFont, indexCounter[0]++);
+            }
+        }
+
+        for (PdfSecNode ch : node.children) {
+            renderSectionTreeRows(table, ch, fonts, rowFont, indexCounter);
+        }
+    }
+
+    private static void addFolderGroupRow(PdfPTable table,
+                                          PdfSecNode node,
+                                          com.lowagie.text.Font font) {
+        String text = indent(node.depth) + node.name;
+        PdfPCell c = new PdfPCell(new Phrase(text, font));
+        c.setColspan(6);
+        c.setHorizontalAlignment(Element.ALIGN_LEFT);
+        c.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        c.setPadding(6f);
+        c.setBorderColor(Color.BLACK);
+        c.setBorderWidth(0.5f);
+        // цвет #CCFFFF
+        c.setBackgroundColor(new Color(0xCC, 0xFF, 0xFF));
+        table.addCell(c);
+    }
+
+    private static void addFolderLeafRow(PdfPTable table,
+                                         PdfSecNode node,
+                                         com.lowagie.text.Font font,
+                                         int index) {
+        String name = indent(node.depth) + node.name;
+        double sum = node.totalSum;
+
+        // №
+        addBodyCell(table, String.valueOf(index), Element.ALIGN_CENTER, font);
+        // Наименование
+        addBodyCell(table, name, Element.ALIGN_LEFT, font);
+        // Ед. изм.
+        addBodyCell(table, "компл", Element.ALIGN_CENTER, font);
+        // Кол-во
+        addBodyCell(table, "1", Element.ALIGN_RIGHT, font);
+        // Цена за ед. НДС, тг
+        addBodyCell(table, num(sum), Element.ALIGN_RIGHT, font);
+        // Сумма с учётом НДС, тг
+        addBodyCell(table, num(sum), Element.ALIGN_RIGHT, font);
+    }
+
+    private static String indent(int depth) {
+        if (depth <= 0) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < depth; i++) {
+            sb.append("    "); // по 4 пробела на уровень
+        }
+        return sb.toString();
     }
 
     private static void addHeaderCell(PdfPTable t, String text, com.lowagie.text.Font font, Color bg) {
@@ -759,4 +887,6 @@ public class ProposalController {
             return null;
         }
     }
+
+
 }
