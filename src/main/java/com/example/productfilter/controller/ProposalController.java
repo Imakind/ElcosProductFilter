@@ -199,14 +199,17 @@ public class ProposalController {
             tdMoney.setDataFormat(df.getFormat("# ##0"));
 
             // строка группы (блок) — как в PDF: голубой фон, чёрная рамка
+            // строка папки с подпапками — фон #CCFFFF, чёрная рамка (как в PDF)
             CellStyle grp = wb.createCellStyle();
             grp.cloneStyleFrom(base);
-            ((XSSFCellStyle) grp).setFillForegroundColor(new XSSFColor(new java.awt.Color(131, 226, 255), null));
+            ((XSSFCellStyle) grp).setFillForegroundColor(
+                    new XSSFColor(new java.awt.Color(0xCC, 0xFF, 0xFF), null));
             grp.setFillPattern(FillPatternType.SOLID_FOREGROUND);
             grp.setAlignment(HorizontalAlignment.LEFT);
             grp.setVerticalAlignment(VerticalAlignment.CENTER);
             grp.setWrapText(true);
             setBorders(grp, BorderStyle.THIN, IndexedColors.BLACK.getIndex());
+
 
             CellStyle totalLbl = wb.createCellStyle();
             totalLbl.cloneStyleFrom(base);
@@ -246,7 +249,7 @@ public class ProposalController {
 
             Row hdr3 = sh.createRow(r++);
             String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"));
-            cell(hdr3, 7, dateStr, base);
+            cell(hdr3, 5, dateStr, base);
             try {
                 byte[] logo = tryReadLogo(session);
                 if (logo != null) {
@@ -254,10 +257,10 @@ public class ProposalController {
                     CreationHelper helper = wb.getCreationHelper();
                     Drawing<?> drawing = sh.createDrawingPatriarch();
                     ClientAnchor anchor = helper.createClientAnchor();
-                    anchor.setCol1(7);
+                    anchor.setCol1(5);
                     anchor.setRow1(1);
                     Picture pict = drawing.createPicture(anchor, picIdx);
-                    pict.resize(0.2, 0.2);
+                    pict.resize(0.1, 0.1);
                 }
             } catch (Exception ignore) {
             }
@@ -265,12 +268,20 @@ public class ProposalController {
 
             // заголовок таблицы
             Row head = sh.createRow(r++);
-            String[] cols = {"№", "Наименование", "Ед.изм", "Кол-во", "Цена за ед., тг", "Сумма с учётом НДС, тг"};
+            String[] cols = {
+                    "№",
+                    "Наименование",
+                    "Ед.изм",
+                    "Кол-во",
+                    "Цена за ед. НДС, тг",
+                    "Сумма с учетом НДС, тг"
+            };
             for (int c = 0; c < cols.length; c++) {
                 Cell hc = head.createCell(c);
                 hc.setCellValue(cols[c]);
                 hc.setCellStyle(th);
             }
+
 
             sh.setColumnWidth(0, 256 * 6);
             sh.setColumnWidth(1, 256 * 48);
@@ -279,49 +290,94 @@ public class ProposalController {
             sh.setColumnWidth(4, 256 * 18);
             sh.setColumnWidth(5, 256 * 22);
 
-            Map<Long, List<Product>> bySection = new LinkedHashMap<>();
-            for (Product p : products) {
-                long sid = Optional.ofNullable(productSection.get(p.getProductId())).orElse(1L);
-                bySection.computeIfAbsent(sid, k -> new ArrayList<>()).add(p);
+            // ====== Иерархия папок и агрегирование сумм (как в PDF) ======
+
+// родительские связи секций из сессии
+            @SuppressWarnings("unchecked")
+            Map<Long, Long> sectionParent =
+                    (Map<Long, Long>) session.getAttribute("sectionParent");
+            if (sectionParent == null) {
+                sectionParent = new HashMap<>();
+            }
+// гарантируем корень
+            sectionParent.putIfAbsent(1L, null);
+
+// строим узлы дерева по sections + sectionParent
+            Map<Long, PdfSecNode> secNodes = new LinkedHashMap<>();
+            for (Map.Entry<Long, String> e : sections.entrySet()) {
+                Long id = e.getKey();
+                String name = e.getValue();
+                Long parentId = sectionParent.get(id);
+                PdfSecNode node = new PdfSecNode(id, name, parentId);
+                secNodes.put(id, node);
             }
 
-            int idx = 1;
-            long totalQty = 0;
+// строим связи родитель → дети и список корней
+            List<PdfSecNode> roots = new ArrayList<>();
+            for (PdfSecNode node : secNodes.values()) {
+                if (node.parentId == null || !secNodes.containsKey(node.parentId)) {
+                    roots.add(node);
+                } else {
+                    PdfSecNode parent = secNodes.get(node.parentId);
+                    parent.children.add(node);
+                }
+            }
+            if (roots.isEmpty() && secNodes.containsKey(1L)) {
+                roots.add(secNodes.get(1L));
+            }
+
+// считаем прямые суммы по товарам
+            // считаем прямые суммы по товарам
             double grand = 0.0;
+            for (Product p : products) {
+                Integer pid = p.getProductId();
+                if (pid == null) continue;
 
-            for (Map.Entry<Long, List<Product>> e : bySection.entrySet()) {
-                String blockName = sections.getOrDefault(e.getKey(), "Блок");
-                Row gr = sh.createRow(r++);
-                Cell g0 = gr.createCell(0);
-                g0.setCellValue(blockName);
-                g0.setCellStyle(grp);
-                for (int c = 1; c < 6; c++) {
-                    Cell cc = gr.createCell(c);
-                    cc.setCellStyle(grp);
+                int qty = cart.getOrDefault(pid, 0);
+                if (qty <= 0) continue;
+
+                double basePrice = Optional.ofNullable(p.getPrice()).orElse(0.0);
+                double k = coefficientMap.getOrDefault(pid, 1.0);
+                double price = basePrice * k;
+                double sum = price * qty;
+
+                grand += sum;
+
+                long sid = Optional.ofNullable(productSection.get(pid)).orElse(1L);
+                PdfSecNode node = secNodes.get(sid);
+                if (node == null) {
+                    // если нет такой секции — сваливаемся в корень 1L
+                    PdfSecNode root = secNodes.get(1L);
+                    if (root == null) {
+                        String rootName = sections.getOrDefault(1L, "Общий");
+                        root = new PdfSecNode(1L, rootName, null);
+                        secNodes.put(1L, root);
+                    }
+                    node = root;
                 }
-                sh.addMergedRegion(new CellRangeAddress(gr.getRowNum(), gr.getRowNum(), 0, 5));
-
-                for (Product p : e.getValue()) {
-                    int qty = cart.getOrDefault(p.getProductId(), 0);
-                    if (qty <= 0) continue;
-
-                    double basePrice = Optional.ofNullable(p.getPrice()).orElse(0.0);
-                    double k = coefficientMap.getOrDefault(p.getProductId(), 1.0);
-                    double price = basePrice * k;
-                    double sum = price * qty;
-
-                    Row row = sh.createRow(r++);
-                    cell(row, 0, (double) idx++, tdNum);
-                    cell(row, 1, nz(p.getName()), td);
-                    cell(row, 2, "шт", td);
-                    cell(row, 3, (double) qty, tdNum);
-                    cell(row, 4, price, tdMoney);
-                    cell(row, 5, sum, tdMoney);
-
-                    totalQty += qty;
-                    grand += sum;
-                }
+                node.directSum += sum;
             }
+
+
+// totalSum = directSum + суммы детей
+            for (PdfSecNode root : roots) {
+                calcTotals(root, 0);   // calcTotals уже есть из PDF-логики
+            }
+
+// печатаем дерево: только папки, без товаров
+            int[] idxHolder = new int[]{1};
+            for (PdfSecNode root : roots) {
+                r = renderSectionTreeRowsExcel(
+                        sh,
+                        r,
+                        root,
+                        grp,      // стиль для папки с подпапками (#CCFFFF)
+                        td,       // текстовые ячейки листовых папок
+                        tdMoney,  // числовые ячейки (цена/сумма)
+                        idxHolder
+                );
+            }
+
 
             // бирюзовая полоса сразу после последней строки таблицы
             Row it = sh.createRow(r++);
@@ -669,6 +725,78 @@ public class ProposalController {
             sb.append("    "); // по 4 пробела на уровень
         }
         return sb.toString();
+    }
+
+    private static int renderSectionTreeRowsExcel(XSSFSheet sh,
+                                                  int rowIdx,
+                                                  PdfSecNode node,
+                                                  CellStyle folderGroupStyle,
+                                                  CellStyle leafTextStyle,
+                                                  CellStyle leafNumStyle,
+                                                  int[] indexHolder) {
+        final double EPS = 1e-4;
+
+        if (node.totalSum > EPS) {
+            boolean hasChildTotals = false;
+            for (PdfSecNode ch : node.children) {
+                if (ch.totalSum > EPS) {
+                    hasChildTotals = true;
+                    break;
+                }
+            }
+
+            if (hasChildTotals) {
+                // папка с подпапками — одна строка на всю ширину, фон #CCFFFF
+                Row row = sh.createRow(rowIdx++);
+                for (int c = 0; c <= 5; c++) {
+                    Cell cell = row.createCell(c);
+                    cell.setCellStyle(folderGroupStyle);
+                }
+                row.getCell(0).setCellValue(indent(node.depth) + node.name);
+                sh.addMergedRegion(new CellRangeAddress(row.getRowNum(), row.getRowNum(), 0, 5));
+            } else {
+                // листовая папка — как позиция:
+                // №, Наименование, "компл", 1, цена = сумма, сумма = сумма
+                Row row = sh.createRow(rowIdx++);
+                int col = 0;
+
+                Cell c0 = row.createCell(col++);
+                c0.setCellValue(indexHolder[0]++);
+                c0.setCellStyle(leafNumStyle);
+
+                Cell c1 = row.createCell(col++);
+                c1.setCellValue(indent(node.depth) + node.name);
+                c1.setCellStyle(leafTextStyle);
+
+                Cell c2 = row.createCell(col++);
+                c2.setCellValue("компл");
+                c2.setCellStyle(leafTextStyle);
+
+                Cell c3 = row.createCell(col++);
+                c3.setCellValue(1.0);
+                c3.setCellStyle(leafNumStyle);
+
+                Cell c4 = row.createCell(col++);
+                c4.setCellValue(node.totalSum);
+                c4.setCellStyle(leafNumStyle);
+
+                Cell c5 = row.createCell(col++);
+                c5.setCellValue(node.totalSum);
+                c5.setCellStyle(leafNumStyle);
+            }
+        }
+
+        // дети всегда после родителя
+        for (PdfSecNode ch : node.children) {
+            rowIdx = renderSectionTreeRowsExcel(
+                    sh, rowIdx, ch,
+                    folderGroupStyle,
+                    leafTextStyle,
+                    leafNumStyle,
+                    indexHolder
+            );
+        }
+        return rowIdx;
     }
 
     private static void addHeaderCell(PdfPTable t, String text, com.lowagie.text.Font font, Color bg) {
