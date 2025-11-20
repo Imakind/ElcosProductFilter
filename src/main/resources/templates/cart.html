@@ -15,19 +15,31 @@
         .page { padding: 20px; max-width: 1280px; margin: 0 auto; }
         h1 { margin: 0 0 16px; font-size: 22px; }
 
-        .cart-layout { display: grid; grid-template-columns: 320px 1fr; gap: var(--gap); align-items: start; }
+        .cart-layout { display: grid; grid-template-columns: clamp(380px, 30vw, 520px) 1fr; gap: var(--gap); align-items: start; }
         .panel { border: 1px solid #2a2a2a; border-radius: 12px; padding: 12px; background:#151515; }
         .panel h3 { margin: 0 0 8px; font-size: 16px; display:flex; align-items:center; gap:8px; }
 
         .hint { font-size:12px; opacity:.75; }
         .muted { opacity:.85; }
 
+        .tree { max-height: calc(100vh - 320px); overflow: auto; padding-right: 4px; }
         .tree ul { list-style: none; padding-left: 16px; margin: 6px 0; }
         .tree li { margin: 2px 0; }
-        .node-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
-        .node-row:hover { background:#1e1e1e; }
-        .node-row .icon { width: 18px; text-align: center; opacity:.8; }
-        .node-row .label.selected { font-weight:700; text-decoration: underline; }
+        .node-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+        .node-row:hover { background:#1e2833; }
+        .node-row .icon { width: 22px; text-align: center; opacity:.8; }
+        .node-row .label {
+            flex: 1;
+            min-width: 0;
+            line-height: 1.3;
+            white-space: normal;
+            word-break: break-word;
+        }
+        .node-row .label.selected { text-decoration: none; font-weight: 600; }
+        .node-row.selected {
+            background:#253244;
+            outline: 1px solid #334;
+        }
 
         .folder-products { margin-top:10px; border-top:1px solid #2a2a2a; padding-top:8px; }
         .folder-products h4 { font-size:13px; margin:0 0 6px; opacity:.85;}
@@ -54,14 +66,25 @@
         input[type="text"], input[type="number"], select { background:#1a1a1a; border:1px solid #2a2a2a; border-radius:8px; padding:6px 8px; color:#eaeaea; }
 
         table.list { width:100%; border-collapse: collapse; }
-        table.list th, table.list td { padding:8px; border-bottom:1px solid #212121; vertical-align: middle; }
+        table.list th, table.list td { padding:6px 8px; border-bottom:1px solid #212121; vertical-align: middle; }
         table.list th { text-align:left; font-weight:600; opacity:.9; position:sticky; top:0; background:#151515; z-index:1; }
         table.list tr:hover { background:#1a1a1a; }
         tr[data-draggable="true"] { cursor: grab; }
         tr[data-draggable="true"]:active { cursor: grabbing; }
         .price, .sum { white-space:nowrap; text-align:right; }
         .qty, .coeff { width:92px; }
-        .folder-select { min-width:180px; }
+        .folder-select { min-width: clamp(220px, 26vw, 360px); padding: 8px 10px; height: 36px; }
+        table.list th:nth-child(5),
+        table.list td:nth-child(5) { width: clamp(220px, 26vw, 360px); }
+
+        .cluster { display:flex; align-items:center; gap:8px; flex-wrap:nowrap; white-space:nowrap; }
+
+        @media (max-width: 1200px){
+            .subtoolbar .folder-select { min-width: 200px; }
+        }
+        @media (max-width: 980px){
+            .subtoolbar .folder-select { min-width: 160px; }
+        }
 
         /* Контекстное меню */
         .context-menu {
@@ -85,7 +108,7 @@
         .context-menu .item[disabled] { opacity:.5; pointer-events:none; }
         .context-menu .sep { height:1px; background:#2a2a2a; margin:6px 0; }
 
-        /* Модалка перемещения */
+        /* Модалка перемещения папки */
         .modal-backdrop {
             position: fixed; inset:0; z-index:9998;
             background: rgba(0,0,0,.5);
@@ -101,41 +124,6 @@
         .modal select { width:100%; background:#1a1a1a; border:1px solid #2a2a2a; border-radius:8px; padding:6px 8px; color:#eaeaea; }
         .modal .btn { border-radius:8px; }
 
-        /* === FIX: видимость папок + удобство клика === */
-        .cart-layout {
-            grid-template-columns: clamp(380px, 30vw, 520px) 1fr;
-        }
-
-        .tree {
-            max-height: calc(100vh - 320px);
-            overflow: auto;
-            padding-right: 4px;
-        }
-
-        .node-row {
-            padding: 8px 10px;
-            gap: 10px;
-        }
-        .node-row .icon { width: 22px; }
-
-        .node-row .label {
-            flex: 1;
-            min-width: 0;
-            line-height: 1.3;
-            white-space: normal;
-            word-break: break-word;
-        }
-
-        .node-row:hover { background:#1e2833; }
-        .node-row.selected {
-            background:#253244;
-            outline: 1px solid #334;
-        }
-        .node-row .label.selected {
-            text-decoration: none;
-            font-weight: 600;
-        }
-
         #currentFolderLabel {
             font-weight: 700;
             padding: 2px 6px;
@@ -144,27 +132,89 @@
             border-radius: 6px;
         }
 
-        /* === FIX: селект «Папка» в таблице и тулбаре — шире и выше === */
-        .folder-select {
-            min-width: clamp(220px, 26vw, 360px);
-            padding: 8px 10px;
-            height: 36px;
+        /* === Калькулятор: плавающая панель справа + кнопка-стрелка === */
+
+        .calc-toggle-floating {
+            position: fixed;
+            top: 50%;
+            right: 0;
+            transform: translateY(-50%);
+            border-radius: 12px 0 0 12px;
+            border: 1px solid #2a2a2a;
+            border-right: none;
+            background:#202020;
+            width: 32px;
+            height: 64px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            cursor:pointer;
+            z-index: 10001;
+            font-size:18px;
+            padding:0;
+        }
+        .calc-toggle-floating:hover { background:#262626; }
+
+        .calc-panel-floating {
+            position: fixed;
+            top: 50%;
+            right: 56px;
+            transform: translateY(-50%);
+            width: 340px;
+            max-height: 80vh;
+            overflow:auto;
+            z-index: 10000;
+            display:none;
+        }
+        .calc-panel-floating.visible {
+            display:block;
         }
 
-        table.list th:nth-child(5),
-        table.list td:nth-child(5) {
-            width: clamp(220px, 26vw, 360px);
+        .calc-header {
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            margin:0 0 6px;
+            cursor:move;
+            gap:8px;
+        }
+        .calc-header-title { font-size:15px; font-weight:600; }
+        .calc-header .btn {
+            padding:2px 6px;
+            border-radius:6px;
+            font-size:12px;
         }
 
-        .subtoolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-
-        .cluster { display:flex; align-items:center; gap:8px; flex-wrap:nowrap; white-space:nowrap; }
-
-        @media (max-width: 1200px){
-            .subtoolbar .folder-select { min-width: 200px; }
+        .calc-table {
+            width:100%;
+            border-collapse:collapse;
+            font-size:13px;
         }
-        @media (max-width: 980px){
-            .subtoolbar .folder-select { min-width: 160px; }
+        .calc-table td {
+            padding:3px 4px;
+            border-bottom:1px solid #202020;
+        }
+        .calc-table .section-row td {
+            padding-top:6px;
+            font-weight:600;
+            background:#191919;
+        }
+        .calc-table input[type="number"]{
+            width:100%;
+            box-sizing:border-box;
+            padding:4px 6px;
+            font-size:13px;
+        }
+        .calc-table .result-row td {
+            background:#152016;
+            font-weight:600;
+        }
+        .calc-table .result-row strong {
+            font-size:13px;
+        }
+        .calc-result {
+            text-align:right;
+            white-space:nowrap;
         }
     </style>
 </head>
@@ -198,6 +248,7 @@
         <div class="hint" style="margin-top:6px">Смета сохранится с текущим составом корзины, количеством, коэффициентами, ценами и папками.</div>
     </div>
 
+    <!-- Основной блок: дерево папок + таблица -->
     <div class="cart-layout">
         <aside class="panel">
             <h3>Папки <span class="hint">перетаскивайте строки таблицы на нужную папку. ПКМ по папке — меню</span></h3>
@@ -303,6 +354,108 @@
     </div>
 </div>
 
+<!-- Кнопка-стрелка справа -->
+<button id="calcToggleFloating" class="calc-toggle-floating" type="button" title="Калькулятор">
+    &lt;
+</button>
+
+<!-- Плавающая панель калькулятора -->
+<section id="calcFloatingPanel" class="panel calc-panel-floating">
+    <div class="calc-header">
+        <span class="calc-header-title">Калькулятор себестоимости</span>
+        <button id="calcCloseBtn" type="button" class="btn">✕</button>
+    </div>
+    <div class="hint" style="margin-bottom:6px;">
+        Формулы как в Excel: площадь металла, масса изделия и себестоимость. Перетаскивайте панель за заголовок.
+    </div>
+
+    <table class="calc-table">
+        <tbody>
+        <tr class="section-row"><td colspan="2">Общие</td></tr>
+        <tr>
+            <td>Курс евро</td>
+            <td><input id="calcC2" class="calc-input" type="number" step="0.01" value="500"></td>
+        </tr>
+
+        <tr class="section-row"><td colspan="2">Габариты (мм)</td></tr>
+        <tr>
+            <td>Высота (мм)</td>
+            <td><input id="calcC4" class="calc-input" type="number" step="1" value="1000"></td>
+        </tr>
+        <tr>
+            <td>Ширина (мм)</td>
+            <td><input id="calcC5" class="calc-input" type="number" step="1" value="1000"></td>
+        </tr>
+        <tr>
+            <td>Глубина (мм)</td>
+            <td><input id="calcC6" class="calc-input" type="number" step="1" value="500"></td>
+        </tr>
+        <tr>
+            <td>Толщина металла (мм)</td>
+            <td><input id="calcC7" class="calc-input" type="number" step="0.1" value="1"></td>
+        </tr>
+
+        <tr class="section-row"><td colspan="2">Параметры (кол-во частей)</td></tr>
+        <tr>
+            <td>Передняя/задняя стенки (шт.)</td>
+            <td><input id="calcC9" class="calc-input" type="number" step="0.1" value="2"></td>
+        </tr>
+        <tr>
+            <td>Боковые стенки (шт.)</td>
+            <td><input id="calcC10" class="calc-input" type="number" step="0.1" value="2"></td>
+        </tr>
+        <tr>
+            <td>Верх/нижн. стенки (шт.)</td>
+            <td><input id="calcC11" class="calc-input" type="number" step="0.1" value="2"></td>
+        </tr>
+        <tr>
+            <td>Фальш-панель (шт.)</td>
+            <td><input id="calcC12" class="calc-input" type="number" step="0.1" value="1"></td>
+        </tr>
+        <tr>
+            <td>Внутренности (шт.)</td>
+            <td><input id="calcC13" class="calc-input" type="number" step="0.1" value="0.5"></td>
+        </tr>
+
+        <tr class="section-row"><td colspan="2">Материалы</td></tr>
+        <tr>
+            <td>Расход краски (кг/кв.м)</td>
+            <td><input id="calcC15" class="calc-input" type="number" step="0.01" value="0.3"></td>
+        </tr>
+        <tr>
+            <td>Цена краски (тг/кг)</td>
+            <td><input id="calcC16" class="calc-input" type="number" step="1" value="2500"></td>
+        </tr>
+        <tr>
+            <td>Цена металла (тг/кг)</td>
+            <td><input id="calcC17" class="calc-input" type="number" step="1" value="475"></td>
+        </tr>
+        <tr>
+            <td>Коэффициент сложности</td>
+            <td><input id="calcC18" class="calc-input" type="number" step="0.01" value="1"></td>
+        </tr>
+
+        <tr class="section-row"><td colspan="2">Результаты</td></tr>
+        <tr class="result-row">
+            <td>Площадь металла (кв.м.)</td>
+            <td class="calc-result"><strong id="calcC20">0,00</strong></td>
+        </tr>
+        <tr class="result-row">
+            <td>Масса изделия (кг)</td>
+            <td class="calc-result"><strong id="calcC21">0,00</strong></td>
+        </tr>
+        <tr class="result-row">
+            <td>Себестоимость (тг)</td>
+            <td class="calc-result"><strong id="calcC22">0</strong></td>
+        </tr>
+        <tr class="result-row">
+            <td>Себестоимость (евро)</td>
+            <td class="calc-result"><strong id="calcC23">0,00</strong></td>
+        </tr>
+        </tbody>
+    </table>
+</section>
+
 <script>
     (function(){
         // ===== Helpers =====
@@ -328,7 +481,7 @@
             return v.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
 
-        // ===== Состояние =====
+        // ===== Состояние папок =====
         const treeEl = document.getElementById('sectionTree');
         const currentFolderLabel = document.getElementById('currentFolderLabel');
         const folderProductsBox = document.getElementById('folderProducts');
@@ -385,7 +538,6 @@
                 updateFolderContents();
             });
 
-            // ——— НОВОЕ: переименовать папку ———
             mkItem('Переименовать папку…', async ()=>{
                 const current = node.name || '';
                 const nm = prompt('Новое имя папки:', current);
@@ -516,7 +668,6 @@
             });
         }
 
-        // Удаляем из mapping те productId, которых нет в текущей корзине
         function sanitizeMapping(){
             Object.keys(mapping).forEach(k => {
                 const pid = Number(k);
@@ -708,7 +859,6 @@
         }
 
         async function renameSection(sectionId, name){
-            // основной маршрут
             try{
                 const params = new URLSearchParams();
                 params.set('sectionId', sectionId);
@@ -720,7 +870,6 @@
                 });
                 return;
             } catch(_){}
-            // фолбэк
             const params = new URLSearchParams();
             params.set('name', name);
             await api(`/cart/sections/${sectionId}/rename`, {
@@ -900,9 +1049,8 @@
             toggleAll.indeterminate = !all && some;
 
             if (applyCoeffBtn) {
-                const rows = visibleRows();
-                const some = rows.some(tr => qs('.row-check', tr)?.checked);
-                applyCoeffBtn.disabled = !some;
+                const someSel = rows.some(tr => qs('.row-check', tr)?.checked);
+                applyCoeffBtn.disabled = !someSel;
             }
         }
 
@@ -953,7 +1101,7 @@
             folderProductsBox.appendChild(ul);
         }
 
-        // ===== Итоги (все строки) =====
+        // ===== Итоги по корзине =====
         function recalcSummary() {
             const rows = qsa('tr[data-product-id]', cartTbody);
             let positions = 0;
@@ -981,7 +1129,6 @@
             if (sumEl) sumEl.textContent = fmtMoney(grand);
         }
 
-        // ===== Пересчёт суммы в строке =====
         function recalcRowSum(tr){
             const qty = Number(qs('input.qty', tr)?.value || 0);
             const coeff = Number(qs('input.coeff', tr)?.value || 1);
@@ -1006,7 +1153,6 @@
         }
 
         async function bulkDelete(ids){
-            // пробуем массовый бэкенд
             let okBulk = false;
             try {
                 const params = new URLSearchParams();
@@ -1022,12 +1168,10 @@
             if (!okBulk){
                 for (const pid of ids){
                     try {
-                        // предпочтительно явное удаление
                         const p = new URLSearchParams();
                         p.set('productId', pid);
                         await api('/cart/remove', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:p });
                     } catch(_){
-                        // фолбэк на update=0
                         const p = new URLSearchParams();
                         p.set('productId', pid);
                         p.set('quantity', 0);
@@ -1036,7 +1180,6 @@
                 }
             }
 
-            // чистим UI
             ids.forEach(pid=>{
                 const row = productIndex[pid]?.row;
                 if (row && row.parentElement) row.parentElement.removeChild(row);
@@ -1051,7 +1194,7 @@
             filterRows();
         }
 
-        // ===== UI API =====
+        // ===== UI API корзины =====
         window.cartUI = {
             async plusMinus(btn, delta){
                 const tr = btn.closest('tr');
@@ -1064,7 +1207,6 @@
                 const pid = Number(input.getAttribute('data-product-id'));
                 const val = Number(input.value || 0);
 
-                // 1) пробуем современный /cart/set-qty
                 let usedSetQty = false;
                 try{
                     const params = new URLSearchParams();
@@ -1090,7 +1232,6 @@
                         return;
                     }
 
-                    // если бэк вернул агрегаты — проставим
                     if (res && typeof res === 'object'){
                         const row = input.closest('tr');
                         if (row){
@@ -1115,9 +1256,8 @@
                     }
                     updateSelectionUI();
                     return;
-                } catch(_){ /* пойдём фолбэком */ }
+                } catch(_){}
 
-                // 2) фолбэк на старый /cart/update
                 try{
                     const params = new URLSearchParams();
                     params.set('productId', pid);
@@ -1158,17 +1298,6 @@
                 recalcRowSum(input.closest('tr'));
             }
         };
-
-        function enableDnDOnRows(){
-            qsa('tr[data-product-id]', cartTbody).forEach(tr=>{
-                const pid = tr.dataset.productId;
-                if (!pid) return;
-                tr.setAttribute('draggable','true');
-                tr.addEventListener('dragstart', ev=>{
-                    ev.dataTransfer.setData('text/product-id', String(pid));
-                });
-            });
-        }
 
         function wireUI(){
             indexRows();
@@ -1255,6 +1384,140 @@
             enableDnDOnRows();
         }
 
+        // ===== Калькулятор себестоимости (формулы как в Excel) =====
+        function calcNum(id){
+            const el = document.getElementById(id);
+            if (!el) return 0;
+            const raw = String(el.value ?? '').replace(',', '.').trim();
+            const n = parseFloat(raw);
+            return isNaN(n) ? 0 : n;
+        }
+        function setText(id, text){
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        }
+        function recalcCalc(){
+            const C2  = calcNum('calcC2');
+            const C4  = calcNum('calcC4');
+            const C5  = calcNum('calcC5');
+            const C6  = calcNum('calcC6');
+            const C7  = calcNum('calcC7');
+
+            const C9  = calcNum('calcC9');
+            const C10 = calcNum('calcC10');
+            const C11 = calcNum('calcC11');
+            const C12 = calcNum('calcC12');
+            const C13 = calcNum('calcC13');
+
+            const C15 = calcNum('calcC15');
+            const C16 = calcNum('calcC16');
+            const C17 = calcNum('calcC17');
+            const C18 = calcNum('calcC18');
+
+            const area_mm2 = (C12 + C13 + C9) * C4 * C5
+                + C10 * C6 * C4
+                + C11 * C5 * C6;
+
+            const S = area_mm2 / 1_000_000;
+
+            const mass = 0.0079 * C7 / 10 * (area_mm2 / 100);
+
+            const metalCost = 0.0079 * C7 / 10 * C17 * (1.55 * area_mm2 / 100);
+            const paintCost = (2 * S) * C15 * C16;
+            const costTenge = (metalCost + paintCost) * C18;
+
+            setText('calcC20', S.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+            setText('calcC21', mass.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+            setText('calcC22', Math.round(costTenge).toLocaleString('ru-RU'));
+            const costEuro = (C2 > 0) ? (costTenge / C2) : 0;
+            setText('calcC23', costEuro.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+        }
+
+        function initCalc(){
+            const inputs = qsa('.calc-input');
+            if (!inputs.length) return;
+
+            const panel   = document.getElementById('calcFloatingPanel');
+            const toggle  = document.getElementById('calcToggleFloating');
+            const closeBt = document.getElementById('calcCloseBtn');
+            const header  = panel?.querySelector('.calc-header');
+
+            function setVisible(v){
+                if (!panel || !toggle) return;
+                if (v){
+                    panel.classList.add('visible');
+                    panel.style.right = '56px';
+                    panel.style.left  = 'auto';
+                    panel.style.top   = '50%';
+                    panel.style.transform = 'translateY(-50%)';
+                    toggle.innerHTML = '&gt;';
+                } else {
+                    panel.classList.remove('visible');
+                    toggle.innerHTML = '&lt;';
+                }
+            }
+
+            if (toggle && panel){
+                toggle.addEventListener('click', ()=>{
+                    setVisible(!panel.classList.contains('visible'));
+                });
+            }
+            if (closeBt){
+                closeBt.addEventListener('click', ()=>setVisible(false));
+            }
+
+            // перетаскивание панели за заголовок
+            // перетаскивание панели за заголовок
+            if (header && panel){
+                let dragging = false;
+                let offsetX = 0, offsetY = 0;
+
+                header.addEventListener('mousedown', e=>{
+                    // НЕ начинать drag, если нажали на кнопку/инпут (в т.ч. "✕")
+                    if (e.target.closest('button') || e.target.closest('input')) {
+                        return;
+                    }
+
+                    dragging = true;
+                    const rect = panel.getBoundingClientRect();
+                    offsetX = e.clientX - rect.left;
+                    offsetY = e.clientY - rect.top;
+
+                    panel.style.right = 'auto';
+                    panel.style.transform = 'none';
+
+                    function onMove(ev){
+                        if (!dragging) return;
+                        const w = window.innerWidth;
+                        const h = window.innerHeight;
+                        let left = ev.clientX - offsetX;
+                        let top  = ev.clientY - offsetY;
+
+                        const r = panel.getBoundingClientRect();
+                        left = Math.max(8, Math.min(w - r.width - 8, left));
+                        top  = Math.max(8, Math.min(h - r.height - 8, top));
+
+                        panel.style.left = left + 'px';
+                        panel.style.top  = top + 'px';
+                    }
+                    function onUp(){
+                        dragging = false;
+                        document.removeEventListener('mousemove', onMove);
+                        document.removeEventListener('mouseup', onUp);
+                    }
+
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
+                    e.preventDefault();
+                });
+            }
+
+
+            inputs.forEach(i => i.addEventListener('input', recalcCalc));
+            recalcCalc();
+        }
+
+        // ===== Инициализация =====
         (async function init(){
             indexRows();
             await reloadMapping();
@@ -1264,6 +1527,7 @@
             filterRows();
             updateFolderContents();
             updateSelectionUI();
+            initCalc();
         })();
 
     })();

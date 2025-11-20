@@ -31,15 +31,6 @@
                     <a href="/admin/add-product" class="btn btn-success">➕ Добавить товар</a>
                 </li>
 
-                <!-- 🧮 Калькулятор формул -->
-                <li class="nav-item">
-                    <button type="button"
-                            class="btn btn-outline-info"
-                            data-bs-toggle="modal"
-                            data-bs-target="#calcModal">
-                        🧮 Формулы расчёта
-                    </button>
-                </li>
             </ul>
 
 
@@ -838,101 +829,7 @@
     });
 
 
-    // ====== КАЛЬКУЛЯТОР ФОРМУЛ (как в Excel) ======
-    function calcParseNumber(value, fallback) {
-        if (value === undefined || value === null || value === '') return fallback;
-        const s = String(value).replace(',', '.');
-        const n = parseFloat(s);
-        return isNaN(n) ? fallback : n;
-    }
 
-    function calcFormat(value, fractionDigits) {
-        if (!isFinite(value)) return '0';
-        return value.toLocaleString('ru-RU', {
-            minimumFractionDigits: fractionDigits,
-            maximumFractionDigits: fractionDigits
-        });
-    }
-
-    function recalcFormulas() {
-        const h  = calcParseNumber(document.getElementById('calc-height')?.value,      0);   // C4
-        const w  = calcParseNumber(document.getElementById('calc-width')?.value,       0);   // C5
-        const d  = calcParseNumber(document.getElementById('calc-depth')?.value,       0);   // C6
-        const t  = calcParseNumber(document.getElementById('calc-thickness')?.value,   0);   // C7
-
-        const nFB   = calcParseNumber(document.getElementById('calc-frontback')?.value, 0);  // C9
-        const nSide = calcParseNumber(document.getElementById('calc-side')?.value,      0);  // C10
-        const nTop  = calcParseNumber(document.getElementById('calc-topbottom')?.value, 0);  // C11
-        const nFP   = calcParseNumber(document.getElementById('calc-falsepanel')?.value,0);  // C12
-        const nIn   = calcParseNumber(document.getElementById('calc-inside')?.value,    0);  // C13
-
-        const paintCons  = calcParseNumber(document.getElementById('calc-paint-cons')?.value,  0); // C15
-        const paintPrice = calcParseNumber(document.getElementById('calc-paint-price')?.value, 0); // C16
-        const metalPrice = calcParseNumber(document.getElementById('calc-metal-price')?.value, 0); // C17
-        const kComplex   = calcParseNumber(document.getElementById('calc-complexity')?.value,  1); // C18
-
-        const eurRate    = calcParseNumber(document.getElementById('calc-eur-rate')?.value,    0);
-
-        // Формула Excel: areas = (C12+C13+C9)*C4*C5 + C10*C6*C4 + C11*C5*C6
-        const areas = (nFP + nIn + nFB) * h * w + nSide * d * h + nTop * w * d;
-
-        // C20: площадь металла (кв.м.)
-        const areaM2 = areas / 1_000_000.0;
-
-        // C21: масса изделия
-        const mass = 0.0079 * t / 10.0 * (areas / 100.0);
-
-        // C22: себестоимость
-        // ((0,0079*C7/10*C17*(1,55*((C12+C13+C9)*C4*C5+C10*C6*C4+C11*C5*C6)/100))+((2*C20)*C15*C16))*C18
-        const metalCost =
-            0.0079 * t / 10.0 * metalPrice * (1.55 * (areas / 100.0));
-        const paintCost =
-            (2 * areaM2) * paintCons * paintPrice;
-        const cost = (metalCost + paintCost) * kComplex;
-
-        const costEur = eurRate > 0 ? cost / eurRate : 0;
-
-        // вывод
-        const areaSpan  = document.getElementById('calc-area');
-        const massSpan  = document.getElementById('calc-weight');
-        const costSpan  = document.getElementById('calc-cost');
-        const costESpan = document.getElementById('calc-cost-eur');
-
-        if (areaSpan)  areaSpan.textContent  = calcFormat(areaM2, 2);
-        if (massSpan)  massSpan.textContent  = calcFormat(mass, 2);
-        if (costSpan)  costSpan.textContent  = calcFormat(cost, 0);
-        if (costESpan) costESpan.textContent = calcFormat(costEur, 2);
-    }
-
-    function initCalcModal() {
-        const eurInput = document.getElementById('calc-eur-rate');
-        if (!eurInput) return;
-
-        // ВРЕМЕННО: фиксированный курс.
-        // TODO: здесь можно сделать запрос к API НБ РК и подставлять живой курс.
-        if (!eurInput.value) {
-            eurInput.value = '500.00'; // пример дефолтного курса EUR, можно поменять
-        }// тг за 1 €
-
-        const ids = [
-            'calc-height','calc-width','calc-depth','calc-thickness',
-            'calc-frontback','calc-side','calc-topbottom','calc-falsepanel','calc-inside',
-            'calc-paint-cons','calc-paint-price','calc-metal-price','calc-complexity',
-            'calc-eur-rate'
-        ];
-        ids.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.addEventListener('input', recalcFormulas);
-        });
-
-        const calcModalEl = document.getElementById('calcModal');
-        if (calcModalEl) {
-            calcModalEl.addEventListener('shown.bs.modal', recalcFormulas);
-        }
-
-        // первый расчёт по значениям по умолчанию
-        recalcFormulas();
-    }
 
     // ====== INITIALIZE ======
     document.addEventListener('DOMContentLoaded', function () {
@@ -947,8 +844,6 @@
         // первичная подстановка подписей (если уже выбраны группа/подгруппа)
         fetchAndApplyParamLabels();
 
-        // инициализация калькулятора формул
-        initCalcModal();
     });
 
 
