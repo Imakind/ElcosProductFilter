@@ -336,7 +336,7 @@ public class ProposalController {
                 int qty = cart.getOrDefault(pid, 0);
                 if (qty <= 0) continue;
 
-                double basePrice = Optional.ofNullable(p.getPrice()).orElse(0.0);
+                double basePrice = (p.getPrice() == null ? 0.0 : p.getPrice().doubleValue());
                 double k = coefficientMap.getOrDefault(pid, 1.0);
                 double price = basePrice * k;
                 double sum = price * qty;
@@ -546,7 +546,7 @@ public class ProposalController {
                 int qty = cart.getOrDefault(pid, 0);
                 if (qty <= 0) continue;
 
-                double base = Optional.ofNullable(p.getPrice()).orElse(0.0);
+                double base = (p.getPrice() == null ? 0.0 : p.getPrice().doubleValue());
                 double k = coeffs.getOrDefault(pid, 1.0);
                 double price = base * k;
                 double sum = price * qty;

@@ -85,6 +85,11 @@
 			<artifactId>batik-codec</artifactId>
 			<version>1.17</version>
 		</dependency>
+		<dependency>
+			<groupId>com.fasterxml.jackson.core</groupId>
+			<artifactId>jackson-annotations</artifactId>
+		</dependency>
+
 
 	</dependencies>
 

@@ -3,6 +3,8 @@ package com.example.productfilter.model;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
+
 
 @Entity
 @Table(name="products")
@@ -18,7 +20,7 @@ public class Product {
     private Brand brand;
 
     @Column(name = "base_price")
-    private Double price;
+    private BigDecimal price;
 
     @Column(name = "article_code", nullable = false)
     private String articleCode;
@@ -67,11 +69,11 @@ public class Product {
     }
 
 
-    public Double getPrice() {
+    public BigDecimal getPrice() {
         return price;
     }
 
-    public void setPrice(Double price) {
+    public void setPrice(BigDecimal price) {
         this.price = price;
     }
 

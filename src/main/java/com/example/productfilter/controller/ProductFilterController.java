@@ -35,6 +35,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -50,22 +51,34 @@ import java.util.stream.Stream;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 
 @Controller
 public class ProductFilterController {
-    @Autowired private BrandRepository brandRepo;
-    @Autowired private CategoryRepository categoryRepo;
-    @Autowired private ProductRepository productRepo;
-    @Autowired private ProductParameterRepository parameterRepo;
-    @Autowired private ProductCategoriesRepository productCategoriesRepo;
-    @Autowired private ProposalRepository proposalRepo;
-    @Autowired private ProposalSectionRepository proposalSectionRepo;
+    @Autowired
+    private BrandRepository brandRepo;
+    @Autowired
+    private CategoryRepository categoryRepo;
+    @Autowired
+    private ProductRepository productRepo;
+    @Autowired
+    private ProductParameterRepository parameterRepo;
+    @Autowired
+    private ProductCategoriesRepository productCategoriesRepo;
+    @Autowired
+    private ProposalRepository proposalRepo;
+    @Autowired
+    private ProposalSectionRepository proposalSectionRepo;
 
     private final ProposalService proposalService;
     private final ExcelImportWithSmartParserService excelImportWithSmartParserService;
 
     private static final String PRODUCT_SECTION_QTY = "productSectionQty"; // Map<Integer, Map<Long,Integer>>
     private static final Logger logger = LoggerFactory.getLogger(ProductFilterController.class);
+    private static final Logger log = LoggerFactory.getLogger(CartVirtualController.class);
+
 
     public ProductFilterController(ProposalService proposalService,
                                    ExcelImportWithSmartParserService excelImportWithSmartParserService) {
@@ -224,11 +237,16 @@ public class ProductFilterController {
         }
 
         List<ProductParameters> params = parameterRepo.findByProduct_ProductIdIn(productIds);
-        if (param1 != null && !param1.isEmpty()) params = params.stream().filter(p -> param1.equals(p.getParam1())).collect(Collectors.toList());
-        if (param2 != null && !param2.isEmpty()) params = params.stream().filter(p -> param2.equals(p.getParam2())).collect(Collectors.toList());
-        if (param3 != null && !param3.isEmpty()) params = params.stream().filter(p -> param3.equals(p.getParam3())).collect(Collectors.toList());
-        if (param4 != null && !param4.isEmpty()) params = params.stream().filter(p -> param4.equals(p.getParam4())).collect(Collectors.toList());
-        if (param5 != null && !param5.isEmpty()) params = params.stream().filter(p -> param5.equals(p.getParam5())).collect(Collectors.toList());
+        if (param1 != null && !param1.isEmpty())
+            params = params.stream().filter(p -> param1.equals(p.getParam1())).collect(Collectors.toList());
+        if (param2 != null && !param2.isEmpty())
+            params = params.stream().filter(p -> param2.equals(p.getParam2())).collect(Collectors.toList());
+        if (param3 != null && !param3.isEmpty())
+            params = params.stream().filter(p -> param3.equals(p.getParam3())).collect(Collectors.toList());
+        if (param4 != null && !param4.isEmpty())
+            params = params.stream().filter(p -> param4.equals(p.getParam4())).collect(Collectors.toList());
+        if (param5 != null && !param5.isEmpty())
+            params = params.stream().filter(p -> param5.equals(p.getParam5())).collect(Collectors.toList());
 
         Set<Integer> finalProductIds = !params.isEmpty()
                 ? params.stream().map(p -> p.getProduct().getProductId()).collect(Collectors.toSet())
@@ -240,12 +258,18 @@ public class ProductFilterController {
             String[] sorts = sort.split(",");
             for (String s : sorts) {
                 switch (s) {
-                    case "priceAsc" -> products.sort(Comparator.comparing(Product::getPrice, Comparator.nullsLast(Double::compareTo)));
-                    case "priceDesc" -> products.sort(Comparator.comparing(Product::getPrice, Comparator.nullsLast(Double::compareTo)).reversed());
-                    case "nameAsc" -> products.sort(Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER));
-                    case "nameDesc" -> products.sort(Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER).reversed());
-                    case "brandAsc" -> products.sort(Comparator.comparing(p -> p.getBrand().getBrandName(), String.CASE_INSENSITIVE_ORDER));
-                    case "brandDesc" -> products.sort(Comparator.comparing((Product p) -> p.getBrand().getBrandName(), String.CASE_INSENSITIVE_ORDER).reversed());
+                    case "priceAsc" -> products.sort(
+                            Comparator.comparing(Product::getPrice, Comparator.nullsLast(BigDecimal::compareTo)));
+                    case "priceDesc" -> products.sort(
+                            Comparator.comparing(Product::getPrice, Comparator.nullsLast(BigDecimal::compareTo)).reversed());
+                    case "nameAsc" ->
+                            products.sort(Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER));
+                    case "nameDesc" ->
+                            products.sort(Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER).reversed());
+                    case "brandAsc" ->
+                            products.sort(Comparator.comparing(p -> p.getBrand().getBrandName(), String.CASE_INSENSITIVE_ORDER));
+                    case "brandDesc" ->
+                            products.sort(Comparator.comparing((Product p) -> p.getBrand().getBrandName(), String.CASE_INSENSITIVE_ORDER).reversed());
                 }
             }
         }
@@ -339,7 +363,7 @@ public class ProductFilterController {
         if (qty == null || qty < 1) qty = 1;
 
         @SuppressWarnings("unchecked")
-        Map<Integer,Integer> cart = (Map<Integer,Integer>) s.getAttribute("cart");
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) s.getAttribute("cart");
         if (cart == null || !cart.containsKey(productId)) {
             return Map.of("ok", false, "msg", "Товар не в корзине");
         }
@@ -348,8 +372,8 @@ public class ProductFilterController {
         s.setAttribute("cart", cart);
 
         // ужать разбиения по секциям, если они больше нового qty
-        Map<Integer, Map<Long,Integer>> splits = ensureProductSectionQty(s);
-        Map<Long,Integer> bySection = splits.get(productId);
+        Map<Integer, Map<Long, Integer>> splits = ensureProductSectionQty(s);
+        Map<Long, Integer> bySection = splits.get(productId);
         if (bySection != null && !bySection.isEmpty()) {
             int assigned = bySection.values().stream().mapToInt(v -> v == null ? 0 : v).sum();
             if (assigned > qty) {
@@ -357,7 +381,7 @@ public class ProductFilterController {
                 Long dominant = bySection.entrySet().stream()
                         .max(Comparator.comparingInt(e -> e.getValue() == null ? 0 : e.getValue()))
                         .map(Map.Entry::getKey).orElse(null);
-                Map<Long,Integer> resized = new LinkedHashMap<>();
+                Map<Long, Integer> resized = new LinkedHashMap<>();
                 for (var e : bySection.entrySet()) {
                     int v = e.getValue() == null ? 0 : e.getValue();
                     int nv = (int) Math.floor((v * 1.0 * qty) / Math.max(1, assigned));
@@ -368,7 +392,8 @@ public class ProductFilterController {
                     resized.merge(dominant, rest, Integer::sum);
                 }
                 resized.entrySet().removeIf(x -> x.getValue() == null || x.getValue() <= 0);
-                if (resized.isEmpty()) splits.remove(productId); else splits.put(productId, resized);
+                if (resized.isEmpty()) splits.remove(productId);
+                else splits.put(productId, resized);
                 s.setAttribute(PRODUCT_SECTION_QTY, splits);
             }
         }
@@ -388,7 +413,7 @@ public class ProductFilterController {
 
         for (Product p : products) {
             int q = cart.getOrDefault(p.getProductId(), 0);
-            double base = p.getPrice() == null ? 0.0 : p.getPrice();
+            double base = p.getPrice() == null ? 0.0 : p.getPrice().doubleValue();
             double k = coeff.getOrDefault(p.getProductId(), 1.0);
             double unit = base * k;
             double line = unit * q;
@@ -411,39 +436,77 @@ public class ProductFilterController {
 
     @GetMapping("/cart")
     public String viewCart(Model model, HttpSession session, HttpServletResponse resp) {
-        // no-cache, чтобы избежать визуального «отката» из-за кэша браузера
         resp.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
         resp.setHeader("Pragma", "no-cache");
 
         String sessionId = session.getId();
 
-        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
-        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
-        if (cart == null) cart = new HashMap<>();
-        if (coefficientMap == null) coefficientMap = new HashMap<>();
+        @SuppressWarnings("unchecked")
+        Map<?, Integer> cartRaw = (Map<?, Integer>) session.getAttribute("cart");
+        @SuppressWarnings("unchecked")
+        Map<?, Double> coeffRaw = (Map<?, Double>) session.getAttribute("coefficientMap");
 
-        List<Product> products = (!cart.isEmpty()) ? productRepo.findAllById(cart.keySet()) : List.of();
+        if (cartRaw == null) cartRaw = new HashMap<>();
+        if (coeffRaw == null) coeffRaw = new HashMap<>();
+
+        // Нормализуем ключи к Integer (ВАЖНО!)
+        Map<Integer, Integer> cart = new HashMap<>();
+        for (Map.Entry<?, Integer> e : cartRaw.entrySet()) {
+            Object k = e.getKey();
+            Integer id = (k instanceof Number n)
+                    ? n.intValue()
+                    : Integer.valueOf(k.toString());
+            cart.put(id, e.getValue());
+        }
+
+        Map<Integer, Double> coefficientMap = new HashMap<>();
+        for (Map.Entry<?, Double> e : coeffRaw.entrySet()) {
+            Object k = e.getKey();
+            Integer id = (k instanceof Number n)
+                    ? n.intValue()
+                    : Integer.valueOf(k.toString());
+            coefficientMap.put(id, e.getValue());
+        }
+
+        session.setAttribute("cart", cart);
+        session.setAttribute("coefficientMap", coefficientMap);
+
+        List<Product> products = (!cart.isEmpty())
+                ? productRepo.findAllById(cart.keySet())
+                : List.of();
 
         Map<Integer, Double> unitPriceMap = new HashMap<>();
         for (Product p : products) {
-            unitPriceMap.put(p.getProductId(), p.getPrice() != null ? p.getPrice() : 0.0);
+            unitPriceMap.put(p.getProductId(),
+                    p.getPrice() != null ? p.getPrice().doubleValue() : 0.0);
         }
         model.addAttribute("unitPriceMap", unitPriceMap);
 
-        List<ProductParameters> parameters = parameterRepo.findByProduct_ProductIdIn(
-                products.stream().map(Product::getProductId).collect(Collectors.toSet())
-        );
+        Set<Integer> pids = products.stream()
+                .map(Product::getProductId)
+                .collect(Collectors.toSet());
+
+        List<ProductParameters> parameters =
+                parameterRepo.findByProduct_ProductIdIn(pids);
 
         model.addAttribute("cartProducts", products);
         model.addAttribute("cartParams", parameters);
         model.addAttribute("quantities", cart);
         model.addAttribute("coefficientMap", coefficientMap);
 
-        Set<Integer> productIds = products.stream().map(Product::getProductId).collect(Collectors.toSet());
-        List<ProductCategories> links = productCategoriesRepo.findByProductIdIn(productIds);
-        Set<Integer> categoryIds = links.stream().map(ProductCategories::getCategoryId).collect(Collectors.toSet());
-        List<Category> allCategories = categoryRepo.findAllById(categoryIds);
-        Map<Integer, Category> categoryMap = allCategories.stream().collect(Collectors.toMap(Category::getCategoryId, c -> c));
+        List<ProductCategories> links =
+                productCategoriesRepo.findByProductIdIn(pids);
+
+        Set<Integer> categoryIds = links.stream()
+                .map(ProductCategories::getCategoryId)
+                .collect(Collectors.toSet());
+
+        List<Category> allCategories =
+                categoryRepo.findAllById(categoryIds);
+
+        Map<Integer, Category> categoryMap =
+                allCategories.stream()
+                        .collect(Collectors.toMap(Category::getCategoryId, c -> c));
 
         Map<Integer, List<Category>> productIdToCategories = new HashMap<>();
         for (ProductCategories link : links) {
@@ -451,28 +514,38 @@ public class ProductFilterController {
             Integer categoryId = link.getCategoryId();
             Category category = categoryMap.get(categoryId);
             if (category != null) {
-                productIdToCategories.computeIfAbsent(productId, k -> new ArrayList<>()).add(category);
+                productIdToCategories
+                        .computeIfAbsent(productId, k -> new ArrayList<>())
+                        .add(category);
             }
         }
         model.addAttribute("productCategoriesMap", productIdToCategories);
 
-        Map<String, Object> lastFilters = (Map<String, Object>) session.getAttribute("lastFilters");
-        model.addAttribute("filterParams", lastFilters != null ? lastFilters : new HashMap<>());
+        Map<String, Object> lastFilters =
+                (Map<String, Object>) session.getAttribute("lastFilters");
+        model.addAttribute("filterParams",
+                lastFilters != null ? lastFilters : new HashMap<>());
 
         double totalSum = 0.0;
         for (Product product : products) {
-            int qty = cart.getOrDefault(product.getProductId(), 1);
-            double price = product.getPrice() != null ? product.getPrice() : 0.0;
-            double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
+            Integer pid = product.getProductId();
+            int qty = cart.getOrDefault(pid, 1);
+            double price = product.getPrice() != null ? product.getPrice().doubleValue() : 0.0;
+            double coeff = coefficientMap.getOrDefault(pid, 1.0);
             totalSum += qty * price * coeff;
         }
-        model.addAttribute("totalSum", totalSum);
 
         int totalQuantity = cart.values().stream().mapToInt(Integer::intValue).sum();
+
+        model.addAttribute("totalSum", totalSum);
         model.addAttribute("totalQuantity", totalQuantity);
 
-        List<ProposalHistoryView> history = proposalRepo.findEstimateHistoryBySessionId(sessionId);
+        List<ProposalHistoryView> history =
+                proposalRepo.findEstimateHistoryBySessionId(sessionId);
         model.addAttribute("proposalHistory", history);
+
+        log.info("Cart ids in session: {}", cart.keySet());
+        log.info("Products loaded for cart: {}", products.size());
 
         return "cart";
     }
@@ -522,7 +595,7 @@ public class ProductFilterController {
 
         for (Product product : products) {
             int qty = cart.getOrDefault(product.getProductId(), 1);
-            double basePrice = product.getPrice() != null ? product.getPrice() : 0.0;
+            double basePrice = product.getPrice() != null ? product.getPrice().doubleValue() : 0.0;
             double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
             double finalPrice = basePrice * coeff;
             double total = finalPrice * qty;
@@ -595,7 +668,7 @@ public class ProductFilterController {
             for (int i = 0; i < products.size(); i++) {
                 Product product = products.get(i);
                 int qty = cart.getOrDefault(product.getProductId(), 1);
-                double basePrice = product.getPrice() != null ? product.getPrice() : 0.0;
+                double basePrice = product.getPrice() != null ? product.getPrice().doubleValue() : 0.0;
                 double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
                 double finalPrice = basePrice * coeff;
                 double sum = qty * finalPrice;
@@ -750,7 +823,7 @@ public class ProductFilterController {
 
             for (Product product : products) {
                 int qty = cart.getOrDefault(product.getProductId(), 1);
-                double basePrice = product.getPrice() != null ? product.getPrice() : 0.0;
+                double basePrice = product.getPrice() != null ? product.getPrice().doubleValue() : 0.0;
                 double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
                 double baseSum = basePrice * qty;
                 double unitPrice = basePrice * coeff;
@@ -858,7 +931,7 @@ public class ProductFilterController {
             int qtyTotal = cart.getOrDefault(pid, 0);
             if (qtyTotal <= 0) continue;
 
-            double basePrice = product.getPrice() != null ? product.getPrice() : 0.0;
+            double basePrice = product.getPrice() != null ? product.getPrice().doubleValue() : 0.0;
             double k = coefficientMap.getOrDefault(pid, 1.0);
 
             Map<Long, Integer> bySection = splits.get(pid);

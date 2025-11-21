@@ -11,8 +11,12 @@ import org.springframework.web.multipart.MultipartFile;
 
 
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+
+import java.math.BigDecimal;
+
 
 @Service
 public class ExcelImportWithSmartParserService {
@@ -48,7 +52,7 @@ public class ExcelImportWithSmartParserService {
 
                 String article = getString(row, 0);
                 String name = getString(row, 1);
-                Double price = getDouble(row, 2);
+                BigDecimal price = getBigDecimal(row, 2);
                 String brandName = getString(row, 3);
                 String supplierName = getString(row, 4);
                 String groupName = getString(row, 5);
@@ -174,14 +178,19 @@ public class ExcelImportWithSmartParserService {
         };
     }
 
-    private Double getDouble(Row row, int col) {
+    private BigDecimal getBigDecimal(Row row, int col) {
         Cell cell = row.getCell(col);
         if (cell == null) return null;
+
         return switch (cell.getCellType()) {
-            case NUMERIC -> cell.getNumericCellValue();
+            case NUMERIC -> BigDecimal.valueOf(cell.getNumericCellValue());
             case STRING -> {
                 try {
-                    yield Double.parseDouble(cell.getStringCellValue().trim());
+                    String raw = cell.getStringCellValue()
+                            .trim()
+                            .replace(" ", "")
+                            .replace(",", ".");
+                    yield new BigDecimal(raw);
                 } catch (NumberFormatException e) {
                     yield null;
                 }

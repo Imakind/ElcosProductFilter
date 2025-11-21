@@ -9,6 +9,7 @@ import com.example.productfilter.service.ProductService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.math.BigDecimal;
 
 @Service
 public class ProductServiceImpl implements ProductService {
@@ -30,7 +31,7 @@ public class ProductServiceImpl implements ProductService {
     public void updateProduct(ProductEditDto dto) {
         Product product = productRepo.findById(dto.getProductId()).orElseThrow();
         product.setName(dto.getName());
-        product.setPrice(dto.getPrice());
+        product.setPrice(dto.getPrice() == null ? null : BigDecimal.valueOf(dto.getPrice()));
         product.setArticleCode(dto.getArticleCode());
         productRepo.save(product);
     }

@@ -452,6 +452,15 @@
             <td>Себестоимость (евро)</td>
             <td class="calc-result"><strong id="calcC23">0,00</strong></td>
         </tr>
+
+        <!-- новое -->
+        <tr>
+            <td colspan="2" style="padding-top:8px;">
+                <button id="calcAddToCartBtn" type="button" class="btn btn-primary" style="width:100%;">
+                    Добавить в смету
+                </button>
+            </td>
+        </tr>
         </tbody>
     </table>
 </section>
@@ -1433,6 +1442,86 @@
             setText('calcC23', costEuro.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}));
         }
 
+        function readCalcPayload(){
+            // исходные параметры
+            const payload = {
+                euroRate:  calcNum('calcC2'),
+                heightMm:  calcNum('calcC4'),
+                widthMm:   calcNum('calcC5'),
+                depthMm:   calcNum('calcC6'),
+                thicknessMm: calcNum('calcC7'),
+
+                frontBackQty: calcNum('calcC9'),
+                sideQty:      calcNum('calcC10'),
+                topBottomQty: calcNum('calcC11'),
+                falsePanelQty: calcNum('calcC12'),
+                innerQty:      calcNum('calcC13'),
+
+                paintKgPerM2: calcNum('calcC15'),
+                paintPrice:   calcNum('calcC16'),
+                metalPrice:   calcNum('calcC17'),
+                complexityK:  calcNum('calcC18'),
+            };
+
+            // пересчитаем локально, чтобы гарантировать консистентность
+            const area_mm2 = (payload.falsePanelQty + payload.innerQty + payload.frontBackQty) * payload.heightMm * payload.widthMm
+                + payload.sideQty * payload.depthMm * payload.heightMm
+                + payload.topBottomQty * payload.widthMm * payload.depthMm;
+
+            const areaM2 = area_mm2 / 1_000_000;
+            const massKg = 0.0079 * payload.thicknessMm / 10 * (area_mm2 / 100);
+            const metalCost = 0.0079 * payload.thicknessMm / 10 * payload.metalPrice * (1.55 * area_mm2 / 100);
+            const paintCost = (2 * areaM2) * payload.paintKgPerM2 * payload.paintPrice;
+            const costTenge = (metalCost + paintCost) * payload.complexityK;
+            const costEuro  = payload.euroRate > 0 ? costTenge / payload.euroRate : 0;
+
+            payload.results = {
+                areaM2,
+                massKg,
+                costTenge: Math.round(costTenge),
+                costEuro
+            };
+
+            return payload;
+        }
+
+        async function addVirtualProductToCart(){
+            const btn = document.getElementById('calcAddToCartBtn');
+            if (!btn) return;
+
+            // простая валидация
+            const data = readCalcPayload();
+            if (data.heightMm <= 0 || data.widthMm <= 0 || data.depthMm <= 0 || data.thicknessMm <= 0){
+                alert('Проверь габариты и толщину металла: значения должны быть > 0');
+                return;
+            }
+
+            btn.disabled = true;
+            const oldText = btn.textContent;
+            btn.textContent = 'Добавляем...';
+
+            try {
+                // эндпоинт-заглушка (переименуем позже под твою логику)
+                const res = await api('/cart/virtual/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                // 1) простой вариант: перезагрузить корзину
+                //   так мы точно подтянем маппинг папок, цены, коэффициенты и т.д.
+                location.reload();
+
+                // 2) если позже захочешь без reload — сделаем вставку строки в таблицу по res
+            } catch(e){
+                alert('Не удалось добавить виртуальный товар: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = oldText;
+            }
+        }
+
+
         function initCalc(){
             const inputs = qsa('.calc-input');
             if (!inputs.length) return;
@@ -1510,6 +1599,11 @@
                     document.addEventListener('mouseup', onUp);
                     e.preventDefault();
                 });
+            }
+
+            const addBtn = document.getElementById('calcAddToCartBtn');
+            if (addBtn){
+                addBtn.addEventListener('click', addVirtualProductToCart);
             }
 
 
