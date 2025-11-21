@@ -489,6 +489,20 @@ public class ProductFilterController {
         List<ProductParameters> parameters =
                 parameterRepo.findByProduct_ProductIdIn(pids);
 
+        // было Map<String, ProductParameters>
+        Map<Integer, ProductParameters> paramsByProduct = new HashMap<>();
+        for (ProductParameters pp : parameters) {
+            if (pp.getProduct() != null && pp.getProduct().getProductId() != null) {
+                Integer pid = pp.getProduct().getProductId();
+                paramsByProduct.put(pid, pp);
+            }
+        }
+
+        model.addAttribute("paramsByProduct", paramsByProduct);
+
+
+
+
         model.addAttribute("cartProducts", products);
         model.addAttribute("cartParams", parameters);
         model.addAttribute("quantities", cart);

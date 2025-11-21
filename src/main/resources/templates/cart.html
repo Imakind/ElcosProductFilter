@@ -216,6 +216,82 @@
             text-align:right;
             white-space:nowrap;
         }
+
+        .name-cell{
+            position: relative;
+            overflow: visible;
+        }
+
+        /* popover СКРЫТ без display */
+        .params-popover{
+            position:absolute;
+            left:0;
+            top:100%;
+            margin-top:6px;
+
+            background: rgba(18,18,18,0.92);
+            border: 1px solid #2f2f2f;
+            border-radius: 10px;
+            padding: 8px 10px;
+
+            font-size:12px;
+            line-height:1.35;
+            color:#eaeaea;
+
+            max-width: 360px;
+            width: max-content;
+            z-index: 999;
+            box-shadow: 0 8px 24px rgba(0,0,0,.45);
+            backdrop-filter: blur(4px);
+
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity .12s ease;
+        }
+
+        /* hover-show без рефлоу */
+        .name-cell:hover .params-popover{
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        /* поддержка тача/клика */
+        .name-cell.popover-open .params-popover{
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+
+        /* локальный popover больше не показываем (он только как шаблон) */
+        .params-popover { display:none !important; }
+
+        /* глобальный tooltip */
+        .vp-tooltip{
+            position: fixed;
+            z-index: 20000;
+            background: rgba(18,18,18,0.94);
+            border:1px solid #2f2f2f;
+            border-radius:10px;
+            padding:8px 10px;
+            font-size:12px;
+            line-height:1.35;
+            color:#eaeaea;
+            max-width:360px;
+            box-shadow:0 8px 24px rgba(0,0,0,.45);
+            backdrop-filter: blur(4px);
+            pointer-events:none;
+            display:none;
+        }
+        .vp-tooltip .params-title{
+            font-weight:600;
+            margin-bottom:4px;
+            opacity:.9;
+        }
+
+
     </style>
 </head>
 <body>
@@ -304,7 +380,33 @@
                         data-draggable="true">
                         <td><input type="checkbox" class="row-check"></td>
 
-                        <td class="name" th:text="${p.name}">Наименование</td>
+                        <td class="name name-cell">
+                            <div th:text="${p.name}">Наименование</div>
+
+                            <div class="params-popover"
+                                 th:with="
+        pidRaw=${p.productId},
+        pidS=${#strings.concat('', pidRaw)},
+
+        pp0=${paramsByProduct != null and paramsByProduct.containsKey(pidRaw) ? paramsByProduct[pidRaw] : null},
+        pp1=${pp0 != null ? pp0 : (paramsByProduct != null and paramsByProduct.containsKey(pidS) ? paramsByProduct[pidS] : null)},
+        pp2=${pp1 != null ? pp1 : (paramsByProduct != null and paramsByProduct.containsKey(T(java.lang.Long).valueOf(pidS)) ? paramsByProduct[T(java.lang.Long).valueOf(pidS)] : null)},
+        pp3=${pp2 != null ? pp2 : (paramsByProduct != null and paramsByProduct.containsKey(T(java.lang.Integer).valueOf(pidS)) ? paramsByProduct[T(java.lang.Integer).valueOf(pidS)] : null)},
+        pp=${pp3}
+     ">
+                                <div class="params-title">Параметры</div>
+
+                                <div th:if="${pp == null}" class="muted">Нет параметров</div>
+
+                                <div th:if="${pp != null}">
+                                    <div th:text="${pp.param1}" th:if="${pp.param1 != null}"></div>
+                                    <div th:text="${pp.param2}" th:if="${pp.param2 != null}"></div>
+                                    <div th:text="${pp.param3}" th:if="${pp.param3 != null}"></div>
+                                    <div th:text="${pp.param4}" th:if="${pp.param4 != null}"></div>
+                                    <div th:text="${pp.param5}" th:if="${pp.param5 != null}"></div>
+                                </div>
+                            </div>
+                        </td>
                         <td th:text="${p.brand != null ? p.brand.brandName : '—'}">Brand</td>
                         <td th:text="${p.articleCode}">code</td>
 
@@ -1625,6 +1727,61 @@
         })();
 
     })();
+    document.addEventListener('DOMContentLoaded', () => {
+    const cartTbody = document.getElementById('cartTbody');
+    if (!cartTbody) return;
+
+    const tip = document.createElement('div');
+    tip.className = 'vp-tooltip';
+    document.body.appendChild(tip);
+
+    function showAtCell(cell){
+    const pop = cell.querySelector('.params-popover');
+    if (!pop) return;
+
+    tip.innerHTML = pop.innerHTML;
+    tip.style.display = 'block';
+
+    const rect = cell.getBoundingClientRect();
+    const pad = 8;
+
+    // базово — снизу слева
+    let left = rect.left;
+    let top  = rect.bottom + pad;
+
+    // после display можно измерить tooltip
+    const r = tip.getBoundingClientRect();
+
+    // если не влезает справа — двигаем влево
+    if (left + r.width > window.innerWidth - 8) {
+    left = window.innerWidth - r.width - 8;
+}
+    // если снизу не влезает — показываем сверху
+    if (top + r.height > window.innerHeight - 8) {
+    top = rect.top - r.height - pad;
+}
+
+    tip.style.left = left + 'px';
+    tip.style.top  = top + 'px';
+}
+
+    function hideTip(){
+    tip.style.display = 'none';
+}
+
+    cartTbody.addEventListener('mouseenter', (e) => {
+    const cell = e.target.closest('.name-cell');
+    if (!cell) return;
+    showAtCell(cell);
+}, true);
+
+    cartTbody.addEventListener('mouseleave', (e) => {
+    if (e.target.closest('.name-cell')) hideTip();
+}, true);
+});
+
+
+
 </script>
 </body>
 </html>
