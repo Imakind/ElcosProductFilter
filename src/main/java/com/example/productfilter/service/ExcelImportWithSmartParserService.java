@@ -3,6 +3,7 @@ package com.example.productfilter.service;
 import com.example.productfilter.model.*;
 import com.example.productfilter.repository.*;
 import com.example.productfilter.service.SmartProductParser.ParsedParams;
+import com.example.productfilter.service.impl.BrandService;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
@@ -24,19 +25,23 @@ public class ExcelImportWithSmartParserService {
     private final ProductParameterRepository parameterRepository;
     private final CategoryRepository categoryRepository;
     private final ProductCategoriesRepository productCategoriesRepository;
+    private final BrandService brandService;
+
 
     public ExcelImportWithSmartParserService(ProductRepository productRepository,
                                              BrandRepository brandRepository,
                                              SupplierRepository supplierRepository,
                                              ProductParameterRepository parameterRepository,
                                              CategoryRepository categoryRepository,
-                                             ProductCategoriesRepository productCategoriesRepository) {
+                                             ProductCategoriesRepository productCategoriesRepository,
+                                             BrandService brandService) {
         this.productRepository = productRepository;
         this.brandRepository = brandRepository;
         this.supplierRepository = supplierRepository;
         this.parameterRepository = parameterRepository;
         this.categoryRepository = categoryRepository;
         this.productCategoriesRepository = productCategoriesRepository;
+        this.brandService = brandService;
     }
 
     // Какие поля ищем в Excel
@@ -99,8 +104,7 @@ public class ExcelImportWithSmartParserService {
                 // === Бренд
                 Brand brand = null;
                 if (brandName != null && !brandName.isBlank()) {
-                    brand = brandRepository.findByBrandNameIgnoreCase(brandName.trim())
-                            .orElseGet(() -> brandRepository.save(new Brand(brandName.trim())));
+                    brand = brandService.getOrCreateBrand(brandName.trim());
                 }
 
                 // === Поставщик

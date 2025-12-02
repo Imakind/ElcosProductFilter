@@ -7,15 +7,19 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class BrandService {
-    @Autowired
-    private BrandRepository brandRepository;
 
-    public Brand getOrCreateBrand(String brandName) {
-        return brandRepository.findByBrandNameIgnoreCase(brandName)
-                .orElseGet(() -> {
-                    Brand newBrand = new Brand(brandName);
-                    return brandRepository.save(newBrand);
-                });
+    private final BrandRepository brandRepository;
+
+    public BrandService(BrandRepository brandRepository) {
+        this.brandRepository = brandRepository;
     }
 
+    public synchronized Brand getOrCreateBrand(String brandName) {
+
+        return brandRepository.findByBrandNameIgnoreCase(brandName)
+                .orElseGet(() -> {
+                    Brand b = new Brand(brandName);
+                    return brandRepository.save(b);
+                });
+    }
 }

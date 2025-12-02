@@ -7,6 +7,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="p-4">
+
 <!-- Навигация (только Bootstrap) -->
 <nav class="navbar navbar-expand-md navbar-light bg-white shadow-sm fixed-top">
     <div class="container">
@@ -31,8 +32,16 @@
                     <a href="/admin/add-product" class="btn btn-success">➕ Добавить товар</a>
                 </li>
 
+                <!-- КНОПКА КОЭФФИЦИЕНТОВ -->
+                <li class="nav-item" sec:authorize="hasRole('ADMIN')">
+                    <button class="btn btn-warning"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#coefModal">
+                        ⚙ Коэффициенты
+                    </button>
+                </li>
             </ul>
-
 
             <ul class="navbar-nav ms-auto align-items-md-center gap-2">
                 <li class="nav-item">
@@ -67,6 +76,7 @@
 
 <div class="container">
     <h2 class="mb-4">Фильтр товаров</h2>
+
     <form method="get" th:action="@{/filter/results}">
         <div class="row mb-3">
             <div class="col">
@@ -80,6 +90,7 @@
                     </option>
                 </select>
             </div>
+
             <div class="col">
                 <label class="form-label" for="groupId">Группа товара:</label>
                 <select id="groupId" name="groupId" class="form-select" onchange="onGroupChange()">
@@ -91,6 +102,7 @@
                     </option>
                 </select>
             </div>
+
             <div class="col">
                 <label class="form-label" for="subGroupId">Подгруппа товара:</label>
                 <select id="subGroupId" name="subGroupId" class="form-select" onchange="onSubGroupChange()">
@@ -205,13 +217,13 @@
              th:each="prod : ${products}"
              th:id="'product-' + ${prod.productId}"
              th:classappend="${quantities != null and quantities[prod.productId] != null} ? ' border border-success rounded shadow-sm bg-light' : ''">
-            <!-- Левая часть: кнопки и инфо -->
+
             <div class="d-flex flex-grow-1 flex-column flex-md-row w-100">
                 <div class="me-3 d-flex flex-row flex-md-column gap-1">
                     <button class="btn btn-outline-secondary btn-sm"
-                            style="display: none;"
                             th:attr="onclick='openEditModal(' + ${prod.productId} + ')'"
                             title="Редактировать товар">✏</button>
+
                     <button class="btn btn-outline-danger btn-sm"
                             th:attr="onclick='showDeleteConfirmation(' + ${prod.productId} + ')'"
                             title="Удалить товар"
@@ -232,7 +244,6 @@
                 </div>
             </div>
 
-            <!-- Корзина -->
             <div class="input-group" style="max-width: 160px;">
                 <button type="button" class="btn btn-outline-secondary btn-sm"
                         th:onclick="'removeFromCart(' + ${prod.productId} + ')'">➖</button>
@@ -325,7 +336,6 @@
                         </tr>
                         </thead>
                         <tbody>
-                        <!-- Курс евро -->
                         <tr>
                             <td></td>
                             <td>Курс Евро</td>
@@ -337,7 +347,6 @@
                             <td></td>
                         </tr>
 
-                        <!-- Габариты -->
                         <tr class="table-secondary">
                             <td colspan="5">Габариты</td>
                         </tr>
@@ -382,7 +391,6 @@
                             <td></td>
                         </tr>
 
-                        <!-- Параметры -->
                         <tr class="table-secondary">
                             <td colspan="5">Параметры</td>
                         </tr>
@@ -437,7 +445,6 @@
                             <td></td>
                         </tr>
 
-                        <!-- Материалы -->
                         <tr class="table-secondary">
                             <td colspan="5">Материалы</td>
                         </tr>
@@ -485,7 +492,6 @@
                     </table>
                 </div>
 
-                <!-- Блок результата -->
                 <div class="mt-3 p-3 border rounded bg-light">
                     <h6 class="mb-2">Расчёт</h6>
                     <div class="row mb-1">
@@ -528,6 +534,76 @@
     </div>
 </div>
 
+<!-- ====== МОДАЛКА КОЭФФИЦИЕНТОВ (СТОИТ ДО СКРИПТОВ!) ====== -->
+<div class="modal fade" id="coefModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+
+            <div class="modal-header">
+                <h5 class="modal-title">Изменение коэффициента цен</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Применить к:</label>
+                    <div class="d-flex gap-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="coefType"
+                                   id="coefByBrand" value="brand" checked>
+                            <label class="form-check-label" for="coefByBrand">Бренду</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="coefType"
+                                   id="coefBySupplier" value="supplier">
+                            <label class="form-check-label" for="coefBySupplier">Поставщику</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Выбор бренда -->
+                <div class="mb-3" id="brandSelectBlock">
+                    <label class="form-label">Бренд</label>
+                    <select class="form-select" id="coefBrandId">
+                        <option value="">Выберите бренд</option>
+                        <option th:each="b : ${brands}"
+                                th:value="${b.brandId}"
+                                th:text="${b.brandName}"></option>
+                    </select>
+                </div>
+
+                <!-- Выбор поставщика -->
+                <div class="mb-3 d-none" id="supplierSelectBlock">
+                    <label class="form-label">Поставщик</label>
+                    <select class="form-select" id="coefSupplierId">
+                        <option value="">Выберите поставщика</option>
+                    </select>
+                </div>
+
+                <!-- Коэффициент -->
+                <div class="mb-3">
+                    <label class="form-label">Коэффициент (множитель)</label>
+                    <input type="number" step="0.01" min="0"
+                           class="form-control" id="coefValue" placeholder="Например 1.10">
+                    <div class="form-text">
+                        Цена станет: новаяЦена = стараяЦена × коэффициент
+                    </div>
+                </div>
+
+                <div class="alert alert-secondary small mb-0">
+                    Пример: коэффициент 1.10 увеличит цены на 10%.
+                    0.90 уменьшит на 10%.
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button class="btn btn-primary" onclick="applyCoefficient()">Применить</button>
+            </div>
+
+        </div>
+    </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
@@ -828,9 +904,6 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
-
-
-
     // ====== INITIALIZE ======
     document.addEventListener('DOMContentLoaded', function () {
         fetch('/filter/subgroups/all')
@@ -841,26 +914,81 @@
                 if (groupId) updateSubGroups();
                 onAnyFilterChange();
             });
-        // первичная подстановка подписей (если уже выбраны группа/подгруппа)
         fetchAndApplyParamLabels();
-
     });
 
+    // ====== COEF MODAL LOGIC ======
+    document.addEventListener('DOMContentLoaded', () => {
 
+        function updateCoefTypeUI() {
+            const type = document.querySelector('input[name="coefType"]:checked')?.value;
+            const brandBlock = document.getElementById('brandSelectBlock');
+            const supplierBlock = document.getElementById('supplierSelectBlock');
+            if (!brandBlock || !supplierBlock) return;
 
-    // ====== INITIALIZE ======
-    document.addEventListener('DOMContentLoaded', function () {
-        fetch('/filter/subgroups/all')
-            .then(res => res.json())
-            .then(data => {
-                allSubGroups = data || [];
-                const groupId = document.querySelector('select[name="groupId"]').value;
-                if (groupId) updateSubGroups();
-                onAnyFilterChange();
+            brandBlock.classList.toggle('d-none', type !== 'brand');
+            supplierBlock.classList.toggle('d-none', type !== 'supplier');
+        }
+
+        document.querySelectorAll('input[name="coefType"]').forEach(r => {
+            r.addEventListener('change', updateCoefTypeUI);
+        });
+
+        function loadSuppliersForCoefModal() {
+            fetch('/admin/api/suppliers')
+                .then(r => r.json())
+                .then(list => {
+                    const sel = document.getElementById('coefSupplierId');
+                    if (!sel) return;
+                    sel.innerHTML = '<option value="">Выберите поставщика</option>';
+                    list.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s.supplierId;
+                        opt.textContent = s.name;
+                        sel.appendChild(opt);
+                    });
+                })
+                .catch(e => console.error('suppliers load error', e));
+        }
+
+        const coefModalEl = document.getElementById('coefModal');
+        if (coefModalEl) {
+            coefModalEl.addEventListener('shown.bs.modal', () => {
+                updateCoefTypeUI();
+                loadSuppliersForCoefModal();
             });
-        // первичная подстановка подписей (если уже выбраны группа/подгруппа)
-        fetchAndApplyParamLabels();
+        }
     });
+
+    function applyCoefficient() {
+        const type = document.querySelector('input[name="coefType"]:checked').value;
+        const coef = parseFloat(document.getElementById('coefValue').value);
+
+        if (isNaN(coef) || coef <= 0) {
+            alert('Введите корректный коэффициент > 0');
+            return;
+        }
+
+        let id;
+        if (type === 'brand') {
+            id = document.getElementById('coefBrandId').value;
+            if (!id) { alert('Выберите бренд'); return; }
+        } else {
+            id = document.getElementById('coefSupplierId').value;
+            if (!id) { alert('Выберите поставщика'); return; }
+        }
+
+        fetch('/admin/api/prices/apply-coef', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ type, id: parseInt(id), coef })
+        }).then(r => {
+            if (!r.ok) throw new Error();
+            alert('Коэффициент применён');
+            location.reload();
+        }).catch(() => alert('Ошибка применения коэффициента'));
+    }
 </script>
+
 </body>
 </html>
