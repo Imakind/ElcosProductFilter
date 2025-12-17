@@ -9,20 +9,51 @@ import java.util.Collection;
 
 
 public interface CategoryRepository extends JpaRepository<Category, Integer> {
+
+    // Все корневые группы (без фильтра)
     List<Category> findByParentCategoryIdIsNull();
+
+    // Подгруппы по parentId (без учёта товаров)
     List<Category> findByParentCategoryId(Integer parentId);
 
-    @Query("SELECT DISTINCT c FROM ProductCategories pc JOIN Category c ON pc.categoryId = c.categoryId WHERE pc.productId IN :productIds")
-    List<Category> findByProducts(@Param("productIds") Collection<Integer> productIds);
+    // Все категории, в которых есть товары
+    @Query("""
+        SELECT DISTINCT c
+        FROM ProductCategories pc
+        JOIN Category c ON pc.categoryId = c.categoryId
+        WHERE pc.productId IN :productIds
+    """)
+    List<Category> findByProducts(
+            @Param("productIds") Collection<Integer> productIds
+    );
 
-    @Query("SELECT DISTINCT c FROM ProductCategories pc " +
-            "JOIN Category c ON pc.categoryId = c.categoryId " +
-            "WHERE pc.productId IN :productIds AND c.parentCategoryId IS NULL")
-    List<Category> findParentCategoriesByProducts(@Param("productIds") Collection<Integer> productIds);
+    // ГРУППЫ по товарам (parent = null)
+    @Query("""
+        SELECT DISTINCT c
+        FROM ProductCategories pc
+        JOIN Category c ON pc.categoryId = c.categoryId
+        WHERE pc.productId IN :productIds
+          AND c.parentCategoryId IS NULL
+    """)
+    List<Category> findParentCategoriesByProducts(
+            @Param("productIds") Collection<Integer> productIds
+    );
 
+    // ПОДГРУППЫ по товарам (parent != null)
+    @Query("""
+        SELECT DISTINCT c
+        FROM ProductCategories pc
+        JOIN Category c ON pc.categoryId = c.categoryId
+        WHERE pc.productId IN :productIds
+          AND c.parentCategoryId IS NOT NULL
+    """)
+    List<Category> findSubCategoriesByProducts(
+            @Param("productIds") Collection<Integer> productIds
+    );
+
+    // Все подгруппы (без фильтра)
     @Query("SELECT c FROM Category c WHERE c.parentCategoryId IS NOT NULL")
     List<Category> findAllSubGroups();
+
     Optional<Category> findByNameIgnoreCase(String name);
-
-
 }
