@@ -343,6 +343,7 @@ public class ProductFilterController {
         int start = page * pageSize;
         int end = Math.min(start + pageSize, total);
 
+        products.sort(Comparator.comparing(Product::getProductId));
         List<Product> pageContent = (start < end) ? products.subList(start, end) : List.of();
 
         model.addAttribute("products", pageContent);

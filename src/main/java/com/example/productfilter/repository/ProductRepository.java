@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 import java.math.BigDecimal;
 import java.util.*;
 
-public interface ProductRepository extends JpaRepository<Product, Integer> {
+public interface ProductRepository extends JpaRepository<Product, Integer> , JpaSpecificationExecutor<Product> {
 
     List<Product> findByBrand_BrandId(Integer brandId);
 
