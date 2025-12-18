@@ -164,6 +164,12 @@ public class ProductFilterController {
 
         return categoryRepo.findParentCategoriesByProducts(ids);
     }
+    @GetMapping("/filter/groups/all")
+    @ResponseBody
+    public List<Category> allGroups() {
+        // все "родительские" категории (группы)
+        return categoryRepo.findByParentCategoryIdIsNull();
+    }
 
 
     @GetMapping("/filter/subgroups")
@@ -200,6 +206,23 @@ public class ProductFilterController {
     @ResponseBody
     public Map<String, Set<String>> parameters(@ModelAttribute ProductFilterDTO f) {
 
+        boolean emptyCtx =
+                f.brandId() == null &&
+                        f.groupId() == null &&
+                        f.subGroupId() == null &&
+                        (f.keyword() == null || f.keyword().isBlank());
+
+        // FIX: если нет контекста — как на главной (глобальные distinct)
+        if (emptyCtx) {
+            return Map.of(
+                    "param1List", new LinkedHashSet<>(parameterRepo.findDistinctParam1()),
+                    "param2List", new LinkedHashSet<>(parameterRepo.findDistinctParam2()),
+                    "param3List", new LinkedHashSet<>(parameterRepo.findDistinctParam3()),
+                    "param4List", new LinkedHashSet<>(parameterRepo.findDistinctParam4()),
+                    "param5List", new LinkedHashSet<>(parameterRepo.findDistinctParam5())
+            );
+        }
+
         // ОПЦИИ считаем по контексту, а не по уже выбранным параметрам
         ProductFilterDTO optionsCtx = new ProductFilterDTO(
                 f.brandId(),
@@ -233,6 +256,7 @@ public class ProductFilterController {
 
 
 
+
     @GetMapping("/filter/results")
     public String filterResults(
             @RequestParam(value = "brandId", required = false) Integer brandId,
@@ -261,23 +285,22 @@ public class ProductFilterController {
         if (param5 != null && param5.isBlank()) param5 = null;
         if (keyword != null && keyword.isBlank()) keyword = null;
 
-        // FIX: если выбрана подгруппа без группы — вычисляем parent groupId,
-        // иначе на рендере subGroups будет пустой и селект/параметры "сломаются"
-        Integer effectiveGroupId = groupId;
-        if (effectiveGroupId == null && subGroupId != null) {
-            effectiveGroupId = categoryRepo.findParentIdByCategoryId(subGroupId);
+        // UI-группа: если выбрали подгруппу, но не выбрали группу — вычисляем parent только для списка подгрупп
+        Integer uiGroupId = groupId;
+        if (uiGroupId == null && subGroupId != null) {
+            uiGroupId = categoryRepo.findParentIdByCategoryId(subGroupId);
         }
 
         boolean noFilters =
                 brandId == null &&
-                        effectiveGroupId == null &&
+                        groupId == null &&          // ВАЖНО: тут groupId (как выбрал пользователь), не uiGroupId
                         subGroupId == null &&
                         param1 == null && param2 == null && param3 == null && param4 == null && param5 == null &&
                         keyword == null;
 
         ProductFilterDTO f = new ProductFilterDTO(
                 brandId,
-                effectiveGroupId, // ВАЖНО: используем effectiveGroupId
+                groupId,        // FIX: НЕ подмешиваем uiGroupId в фильтрацию
                 subGroupId,
                 param1, param2, param3, param4, param5,
                 keyword
@@ -285,7 +308,6 @@ public class ProductFilterController {
 
         Set<Integer> ids;
         if (noFilters) {
-            // FIX: без фильтров показываем все товары (и группы не будут пустыми)
             ids = productRepo.findAll().stream().map(Product::getProductId).collect(Collectors.toSet());
         } else {
             ids = productFilterService.resolveProductIds(f);
@@ -324,22 +346,17 @@ public class ProductFilterController {
 
         model.addAttribute("brands", brandRepo.findAll());
 
-        // FIX: группы всегда должны быть доступны (не зависят от ids после параметров),
-        // иначе "ничего не выбрано" -> пустые группы
+        // группы всегда показываем
         model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
 
-        // FIX: подгруппы должны быть доступны даже если groupId не выбран
-        //  - если есть effectiveGroupId -> подгруппы этой группы
-        //  - иначе -> все подгруппы (чтобы можно было стартовать с подгруппы)
+        // подгруппы: если известна uiGroupId — только её, иначе все
         model.addAttribute("subGroups",
-                effectiveGroupId != null
-                        ? categoryRepo.findByParentCategoryIdOrderByNameAsc(effectiveGroupId)
+                uiGroupId != null
+                        ? categoryRepo.findByParentCategoryIdOrderByNameAsc(uiGroupId)
                         : categoryRepo.findAllSubGroupsOrderByNameAsc()
         );
 
-        // Параметры:
-        // - если фильтров нет -> глобальные distinct (как на главной)
-        // - иначе -> только для текущего набора ids
+        // параметры
         if (noFilters) {
             model.addAttribute("param1List", parameterRepo.findDistinctParam1());
             model.addAttribute("param2List", parameterRepo.findDistinctParam2());
@@ -349,23 +366,23 @@ public class ProductFilterController {
         } else {
             List<ProductParameters> params = ids.isEmpty() ? List.of() : parameterRepo.findByProduct_ProductIdIn(ids);
 
-            model.addAttribute("param1List", params.stream().map(ProductParameters::getParam1).filter(Objects::nonNull).collect(Collectors.toSet()));
-            model.addAttribute("param2List", params.stream().map(ProductParameters::getParam2).filter(Objects::nonNull).collect(Collectors.toSet()));
-            model.addAttribute("param3List", params.stream().map(ProductParameters::getParam3).filter(Objects::nonNull).collect(Collectors.toSet()));
-            model.addAttribute("param4List", params.stream().map(ProductParameters::getParam4).filter(Objects::nonNull).collect(Collectors.toSet()));
-            model.addAttribute("param5List", params.stream().map(ProductParameters::getParam5).filter(Objects::nonNull).collect(Collectors.toSet()));
+            model.addAttribute("param1List", params.stream().map(ProductParameters::getParam1).filter(Objects::nonNull).collect(toSet()));
+            model.addAttribute("param2List", params.stream().map(ProductParameters::getParam2).filter(Objects::nonNull).collect(toSet()));
+            model.addAttribute("param3List", params.stream().map(ProductParameters::getParam3).filter(Objects::nonNull).collect(toSet()));
+            model.addAttribute("param4List", params.stream().map(ProductParameters::getParam4).filter(Objects::nonNull).collect(toSet()));
+            model.addAttribute("param5List", params.stream().map(ProductParameters::getParam5).filter(Objects::nonNull).collect(toSet()));
         }
 
         Map<String, Object> selectedParams = new HashMap<>();
         selectedParams.put("brandId", brandId);
-        selectedParams.put("groupId", effectiveGroupId);     // ВАЖНО
+        selectedParams.put("groupId", groupId);         // FIX: сохраняем как выбрал пользователь
         selectedParams.put("subGroupId", subGroupId);
         selectedParams.put("param1", param1);
         selectedParams.put("param2", param2);
         selectedParams.put("param3", param3);
         selectedParams.put("param4", param4);
         selectedParams.put("param5", param5);
-        selectedParams.put("keyword", keyword);              // FIX: раньше не сохранялся
+        selectedParams.put("keyword", keyword);
         selectedParams.put("sort", sort);
         model.addAttribute("filterParams", selectedParams);
 
