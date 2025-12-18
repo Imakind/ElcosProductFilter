@@ -177,6 +177,8 @@
         </div>
 
         <button type="submit" class="btn btn-primary">Применить</button>
+        <input type="hidden" name="page" id="page" th:value="${currentPage}">
+        <input type="hidden" name="sort" id="sort" th:value="${filterParams['sort']}">
     </form>
 
     <hr class="my-4">
@@ -257,11 +259,12 @@
             </div>
         </div>
     </div>
-</div>
+    <div id="infinite-sentinel" style="height: 1px;"></div>
 
-<div id="loader" class="text-center my-4" style="display: none;">
-    <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Loading...</span>
+    <div id="loader" class="text-center my-4" style="display: none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
     </div>
 </div>
 
@@ -394,7 +397,7 @@
     // ===== URL STATE =====
     const urlState = (() => {
         const qs = new URLSearchParams(window.location.search);
-        const keys = ['brandId','groupId','subGroupId','param1','param2','param3','param4','param5','keyword'];
+        const keys = ['brandId','groupId','subGroupId','param1','param2','param3','param4','param5','keyword','sort'];
         const s = {};
         keys.forEach(k => {
             const v = qs.get(k);
@@ -415,7 +418,7 @@
 
     function buildFilterParams() {
         const params = new URLSearchParams();
-        ['brandId','groupId','subGroupId','param1','param2','param3','param4','param5','keyword']
+        ['brandId','groupId','subGroupId','param1','param2','param3','param4','param5','keyword','sort']
             .forEach(name => {
                 const el = document.querySelector(`[name="${name}"]`);
                 if (el && el.value !== null && el.value !== undefined && String(el.value).trim() !== '') {
@@ -462,7 +465,7 @@
         ['param1','param2','param3','param4','param5'].forEach(p => resetSelect(p, true));
     }
 
-    // ====== LOADERS (ВАЖНО: возвращаем Promise, чтобы можно было await) ======
+    // ====== LOADERS ======
     async function loadGroups() {
         const brandId = document.querySelector('[name="brandId"]')?.value?.trim();
         const url = (brandId)
@@ -529,7 +532,6 @@
             const text = (lbl[key] !== undefined && lbl[key] !== null) ? lbl[key] : ('Параметр ' + i);
 
             if (text === '') {
-                // скрываем параметр, но НЕ трогаем другие селекты
                 container.style.display = 'none';
                 select.value = '';
             } else {
@@ -542,10 +544,15 @@
     function autoSubmit() {
         const form = document.querySelector('form[method="get"]');
         if (!form) return;
+
+        const pageEl = document.getElementById('page');
+        if (pageEl) pageEl.value = String(currentPage ?? 0);
+
         if (form.requestSubmit) form.requestSubmit();
         else form.submit();
     }
-    // ====== FILTER CHANGE HANDLERS (строго по порядку) ======
+
+    // ====== FILTER CHANGE HANDLERS ======
     async function onBrandChange() {
         resetParams();
         resetSelect('groupId', false);
@@ -585,8 +592,97 @@
     function onParamChange() {
         currentPage = 0;
         autoSubmit();
-        // тут ничего не грузим автоматически, потому что у тебя серверный submit по кнопке "Применить"
     }
+
+    let done = false;
+    let io = null;
+
+    function getExistingIds() {
+        return new Set(Array.from(document.querySelectorAll('[id^="product-"]')).map(e => e.id));
+    }
+
+    function extractItemsFromResponse(html) {
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+
+        // Вариант A: сервер вернул ФРАГМЕНТ (items — прямые дети)
+        let items = Array.from(temp.children).filter(n => n.classList?.contains('list-group-item'));
+
+        // Вариант B: сервер вернул ПОЛНУЮ СТРАНИЦУ — вытащим items из #product-list
+        if (items.length === 0) {
+            items = Array.from(temp.querySelectorAll('#product-list .list-group-item'));
+        }
+
+        // Последний шанс: просто по селектору
+        if (items.length === 0) {
+            items = Array.from(temp.querySelectorAll('.list-group-item[id^="product-"]'));
+        }
+
+        return items;
+    }
+
+    async function loadNextPage() {
+        if (loading || done) return;
+
+        loading = true;
+        const loader = document.getElementById('loader');
+        if (loader) loader.style.display = 'block';
+
+        try {
+            const nextPage = (Number(currentPage) || 0) + 1;
+
+            const params = buildFilterParams();
+            params.set('page', String(nextPage));
+
+            const r = await fetch('/filter/results?' + params.toString(), {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!r.ok) return;
+
+            const html = await r.text();
+
+            const list = document.getElementById('product-list');
+            if (!list) return;
+
+            const existing = getExistingIds();
+            const items = extractItemsFromResponse(html);
+
+            // фильтруем дубликаты по product-*
+            const newItems = items.filter(n => {
+                const id = n.getAttribute?.('id');
+                return id && id.startsWith('product-') && !existing.has(id);
+            });
+
+            if (newItems.length === 0) {
+                // либо конец, либо сервер игнорирует page и возвращает то же самое
+                done = true;
+                if (io) io.disconnect();
+                return;
+            }
+
+            newItems.forEach(n => list.appendChild(n));
+            currentPage = nextPage;
+
+        } finally {
+            if (loader) loader.style.display = 'none';
+            loading = false;
+        }
+    }
+
+    function initInfiniteScroll() {
+        const sentinel = document.getElementById('infinite-sentinel');
+        if (!sentinel) return;
+
+        if (io) io.disconnect();
+
+        io = new IntersectionObserver(async (entries) => {
+            if (!entries[0].isIntersecting) return;
+            await loadNextPage();
+        }, { root: null, rootMargin: '400px 0px', threshold: 0 });
+
+        io.observe(sentinel);
+    }
+
 
     // ===== INIT =====
     document.addEventListener('DOMContentLoaded', async () => {
@@ -596,12 +692,10 @@
         await loadSubGroups();
         await loadParameters();
         await fetchAndApplyParamLabels();
+
+        initInfiniteScroll();
     });
 </script>
-
-
-
-
 
 </body>
 </html>

@@ -275,9 +275,7 @@ public class ProductFilterController {
             Model model
     ) {
         int pageSize = 21;
-        Pageable pageable = PageRequest.of(page, pageSize);
 
-        // normalize blanks -> null
         if (param1 != null && param1.isBlank()) param1 = null;
         if (param2 != null && param2.isBlank()) param2 = null;
         if (param3 != null && param3.isBlank()) param3 = null;
@@ -285,7 +283,6 @@ public class ProductFilterController {
         if (param5 != null && param5.isBlank()) param5 = null;
         if (keyword != null && keyword.isBlank()) keyword = null;
 
-        // UI-группа: если выбрали подгруппу, но не выбрали группу — вычисляем parent только для списка подгрупп
         Integer uiGroupId = groupId;
         if (uiGroupId == null && subGroupId != null) {
             uiGroupId = categoryRepo.findParentIdByCategoryId(subGroupId);
@@ -293,14 +290,14 @@ public class ProductFilterController {
 
         boolean noFilters =
                 brandId == null &&
-                        groupId == null &&          // ВАЖНО: тут groupId (как выбрал пользователь), не uiGroupId
+                        groupId == null &&
                         subGroupId == null &&
                         param1 == null && param2 == null && param3 == null && param4 == null && param5 == null &&
                         keyword == null;
 
         ProductFilterDTO f = new ProductFilterDTO(
                 brandId,
-                groupId,        // FIX: НЕ подмешиваем uiGroupId в фильтрацию
+                groupId,
                 subGroupId,
                 param1, param2, param3, param4, param5,
                 keyword
@@ -335,28 +332,33 @@ public class ProductFilterController {
             }
         }
 
-        int start = (int) pageable.getOffset();
-        int end = Math.min(start + pageable.getPageSize(), products.size());
-        List<Product> pageContent = start < end ? products.subList(start, end) : List.of();
-        Page<Product> productPage = new PageImpl<>(pageContent, pageable, products.size());
+        // ===== PAGINATION (без PageImpl) =====
+        int total = products.size();
+        int totalPages = (int) Math.ceil(total / (double) pageSize);
+        if (totalPages == 0) totalPages = 1;
 
-        model.addAttribute("products", productPage.getContent());
+        if (page < 0) page = 0;
+        if (page > totalPages - 1) page = totalPages - 1;
+
+        int start = page * pageSize;
+        int end = Math.min(start + pageSize, total);
+
+        List<Product> pageContent = (start < end) ? products.subList(start, end) : List.of();
+
+        model.addAttribute("products", pageContent);
         model.addAttribute("currentPage", page);
-        model.addAttribute("totalPages", productPage.getTotalPages());
+        model.addAttribute("totalPages", totalPages);
+        model.addAttribute("hasPrev", page > 0);
+        model.addAttribute("hasNext", page < totalPages - 1);
 
         model.addAttribute("brands", brandRepo.findAll());
-
-        // группы всегда показываем
         model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
-
-        // подгруппы: если известна uiGroupId — только её, иначе все
         model.addAttribute("subGroups",
                 uiGroupId != null
                         ? categoryRepo.findByParentCategoryIdOrderByNameAsc(uiGroupId)
                         : categoryRepo.findAllSubGroupsOrderByNameAsc()
         );
 
-        // параметры
         if (noFilters) {
             model.addAttribute("param1List", parameterRepo.findDistinctParam1());
             model.addAttribute("param2List", parameterRepo.findDistinctParam2());
@@ -365,7 +367,6 @@ public class ProductFilterController {
             model.addAttribute("param5List", parameterRepo.findDistinctParam5());
         } else {
             List<ProductParameters> params = ids.isEmpty() ? List.of() : parameterRepo.findByProduct_ProductIdIn(ids);
-
             model.addAttribute("param1List", params.stream().map(ProductParameters::getParam1).filter(Objects::nonNull).collect(toSet()));
             model.addAttribute("param2List", params.stream().map(ProductParameters::getParam2).filter(Objects::nonNull).collect(toSet()));
             model.addAttribute("param3List", params.stream().map(ProductParameters::getParam3).filter(Objects::nonNull).collect(toSet()));
@@ -375,7 +376,7 @@ public class ProductFilterController {
 
         Map<String, Object> selectedParams = new HashMap<>();
         selectedParams.put("brandId", brandId);
-        selectedParams.put("groupId", groupId);         // FIX: сохраняем как выбрал пользователь
+        selectedParams.put("groupId", groupId);
         selectedParams.put("subGroupId", subGroupId);
         selectedParams.put("param1", param1);
         selectedParams.put("param2", param2);
