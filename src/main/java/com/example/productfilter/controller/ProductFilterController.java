@@ -144,13 +144,28 @@ public class ProductFilterController {
         return categoryRepo.findParentCategoriesByProducts(ids);
     }
 
-
     @GetMapping("/filter/subgroups")
     @ResponseBody
-    public List<Category> subGroups(ProductFilterDTO f) {
+    public List<Category> subGroups(@ModelAttribute ProductFilterDTO f) {
+
+        // если выбрали группу — возвращаем подгруппы этой группы
+        if (f.groupId() != null) {
+            return categoryRepo.findByParentCategoryIdOrderByNameAsc(f.groupId());
+            // или без сортировки: return categoryRepo.findByParentCategoryId(f.groupId());
+        }
+
         Set<Integer> ids = productFilterService.resolveProductIds(f);
+
+        // если фильтров нет/ничего не найдено — показать все подгруппы
+        if (ids == null || ids.isEmpty()) {
+            return categoryRepo.findByParentCategoryIdIsNotNullOrderByNameAsc();
+            // или: return categoryRepo.findAllSubGroups();
+        }
+
         return categoryRepo.findSubCategoriesByProducts(ids);
     }
+
+
 
 
     @GetMapping("/filter/parameters")

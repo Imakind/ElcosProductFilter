@@ -119,7 +119,7 @@
         <div class="row mb-3">
             <div class="col" id="param1-container">
                 <label id="label-param1" for="param1" class="form-label">Параметр 1:</label>
-                <select id="param1" name="param1" class="form-select" onchange="updateParameters()">
+                <select id="param1" name="param1" class="form-select" onchange="onParamChange()">
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param1List}"
                             th:value="${val}" th:text="${val}"
@@ -129,7 +129,7 @@
 
             <div class="col" id="param2-container">
                 <label id="label-param2" for="param2" class="form-label">Параметр 2:</label>
-                <select id="param2" name="param2" class="form-select" onchange="updateParameters()">
+                <select id="param2" name="param2" class="form-select" onchange="onParamChange()">
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param2List}"
                             th:value="${val}" th:text="${val}"
@@ -139,7 +139,7 @@
 
             <div class="col" id="param3-container">
                 <label id="label-param3" for="param3" class="form-label">Параметр 3:</label>
-                <select id="param3" name="param3" class="form-select" onchange="updateParameters()">
+                <select id="param3" name="param3" class="form-select" onchange="onParamChange()">
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param3List}"
                             th:value="${val}" th:text="${val}"
@@ -149,7 +149,7 @@
 
             <div class="col" id="param4-container">
                 <label id="label-param4" for="param4" class="form-label">Параметр 4:</label>
-                <select id="param4" name="param4" class="form-select" onchange="updateParameters()">
+                <select id="param4" name="param4" class="form-select" onchange="onParamChange()">
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param4List}"
                             th:value="${val}" th:text="${val}"
@@ -159,7 +159,7 @@
 
             <div class="col" id="param5-container">
                 <label id="label-param5" for="param5" class="form-label">Параметр 5:</label>
-                <select id="param5" name="param5" class="form-select" onchange="updateParameters()">
+                <select id="param5" name="param5" class="form-select" onchange="onParamChange()">
                     <option value="">Выберите значение</option>
                     <option th:each="val : ${param5List}"
                             th:value="${val}" th:text="${val}"
@@ -313,228 +313,7 @@
     </svg>
 </button>
 
-<!-- Модальное окно "Формулы расчёта" -->
-<div class="modal fade" id="calcModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Формулы расчёта</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"
-                        aria-label="Close"></button>
-            </div>
-
-            <div class="modal-body">
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle">
-                        <thead class="table-light">
-                        <tr>
-                            <th style="width: 18%;">Раздел</th>
-                            <th style="width: 42%;">Параметр</th>
-                            <th style="width: 20%;">Значение</th>
-                            <th style="width: 20%;">Значение по умолчанию</th>
-                            <th style="width: 5%;"></th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        <tr>
-                            <td></td>
-                            <td>Курс Евро</td>
-                            <td>
-                                <input id="calc-eur-rate" type="number" step="0.01"
-                                       class="form-control form-control-sm">
-                            </td>
-                            <td>0</td>
-                            <td></td>
-                        </tr>
-
-                        <tr class="table-secondary">
-                            <td colspan="5">Габариты</td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Высота (мм)</td>
-                            <td>
-                                <input id="calc-height" type="number" step="1"
-                                       class="form-control form-control-sm" value="1000">
-                            </td>
-                            <td>1000</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Ширина (мм)</td>
-                            <td>
-                                <input id="calc-width" type="number" step="1"
-                                       class="form-control form-control-sm" value="1000">
-                            </td>
-                            <td>1000</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Глубина (мм)</td>
-                            <td>
-                                <input id="calc-depth" type="number" step="1"
-                                       class="form-control form-control-sm" value="1000">
-                            </td>
-                            <td>1000</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Толщина металла (мм)</td>
-                            <td>
-                                <input id="calc-thickness" type="number" step="0.1"
-                                       class="form-control form-control-sm" value="1">
-                            </td>
-                            <td>1</td>
-                            <td></td>
-                        </tr>
-
-                        <tr class="table-secondary">
-                            <td colspan="5">Параметры</td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Передняя/задняя стенки (шт.)</td>
-                            <td>
-                                <input id="calc-frontback" type="number" step="0.1"
-                                       class="form-control form-control-sm" value="2">
-                            </td>
-                            <td>2</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Боковые стенки (шт.)</td>
-                            <td>
-                                <input id="calc-side" type="number" step="0.1"
-                                       class="form-control form-control-sm" value="2">
-                            </td>
-                            <td>2</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Верх/нижн. стенки (шт.)</td>
-                            <td>
-                                <input id="calc-topbottom" type="number" step="0.1"
-                                       class="form-control form-control-sm" value="2">
-                            </td>
-                            <td>2</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Фальш. панель (шт.)</td>
-                            <td>
-                                <input id="calc-falsepanel" type="number" step="0.1"
-                                       class="form-control form-control-sm" value="1">
-                            </td>
-                            <td>1</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Внутренности</td>
-                            <td>
-                                <input id="calc-inside" type="number" step="0.1"
-                                       class="form-control form-control-sm" value="0.5">
-                            </td>
-                            <td>0,5</td>
-                            <td></td>
-                        </tr>
-
-                        <tr class="table-secondary">
-                            <td colspan="5">Материалы</td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Расход краски (кг/кв.м)</td>
-                            <td>
-                                <input id="calc-paint-cons" type="number" step="0.01"
-                                       class="form-control form-control-sm" value="0.3">
-                            </td>
-                            <td>0,3</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Цена краски (тг./кг.)</td>
-                            <td>
-                                <input id="calc-paint-price" type="number" step="1"
-                                       class="form-control form-control-sm" value="2500">
-                            </td>
-                            <td>2500</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Цена металла (тг./кг.)</td>
-                            <td>
-                                <input id="calc-metal-price" type="number" step="1"
-                                       class="form-control form-control-sm" value="475">
-                            </td>
-                            <td>475</td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>Коэффициент сложности</td>
-                            <td>
-                                <input id="calc-complexity" type="number" step="0.1"
-                                       class="form-control form-control-sm" value="1">
-                            </td>
-                            <td>1</td>
-                            <td></td>
-                        </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="mt-3 p-3 border rounded bg-light">
-                    <h6 class="mb-2">Расчёт</h6>
-                    <div class="row mb-1">
-                        <div class="col-8">Площадь металла (кв.м.)</div>
-                        <div class="col-4 text-end">
-                            <span id="calc-area">0,00</span>
-                        </div>
-                    </div>
-                    <div class="row mb-1">
-                        <div class="col-8">Масса изделия</div>
-                        <div class="col-4 text-end">
-                            <span id="calc-weight">0,00</span>
-                        </div>
-                    </div>
-                    <div class="row mb-1">
-                        <div class="col-8">Себестоимость, тг</div>
-                        <div class="col-4 text-end">
-                            <span id="calc-cost">0</span>
-                        </div>
-                    </div>
-                    <div class="row mb-1">
-                        <div class="col-8">Себестоимость, €</div>
-                        <div class="col-4 text-end">
-                            <span id="calc-cost-eur">0,00</span>
-                        </div>
-                    </div>
-                    <div class="small text-muted mt-2">
-                        В расчёт себестоимости заложен коэффициент расхода металла 1,55
-                        (как в Excel).
-                    </div>
-                </div>
-            </div>
-
-            <div class="modal-footer">
-                <button type="button"
-                        class="btn btn-secondary"
-                        data-bs-dismiss="modal">Закрыть</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ====== МОДАЛКА КОЭФФИЦИЕНТОВ (СТОИТ ДО СКРИПТОВ!) ====== -->
+<!-- ====== МОДАЛКА КОЭФФИЦИЕНТОВ ====== -->
 <div class="modal fade" id="coefModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
@@ -608,64 +387,177 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script th:inline="javascript">
-    let allSubGroups = [];
     let currentPage = /*[[${currentPage}]]*/ 0;
     const totalPages = /*[[${totalPages}]]*/ 1;
     let loading = false;
 
-    // ====== DATA LOADERS ======
+    // ====== HELPERS ======
+    function buildFilterParams() {
+        const params = new URLSearchParams();
+        ['brandId','groupId','subGroupId','param1','param2','param3','param4','param5','keyword']
+            .forEach(name => {
+                const el = document.querySelector(`[name="${name}"]`);
+                if (el && el.value !== null && el.value !== undefined && String(el.value).trim() !== '') {
+                    params.set(name, el.value);
+                }
+            });
+        return params;
+    }
+
     function updateSelect(selectName, items) {
         const select = document.querySelector(`select[name="${selectName}"]`);
         if (!select) return;
+
         const currentValue = select.value;
         select.innerHTML = '<option value="">Выберите значение</option>';
-        items.forEach(item => {
+
+        (items || []).forEach(item => {
             const option = document.createElement('option');
-            option.value = item.value || item;
-            option.text  = item.text  || item;
-            if (option.value == currentValue) option.selected = true;
+            option.value = item.value ?? item;
+            option.text  = item.text  ?? item;
+            if (String(option.value) === String(currentValue)) option.selected = true;
             select.appendChild(option);
         });
-        select.disabled = items.length === 0;
+
+        // ВАЖНО: groupId/subGroupId должны быть доступны даже если список пуст (пользователь может начать с другого фильтра)
+        // Поэтому disabled выставляем только для paramX
+        if (['param1','param2','param3','param4','param5'].includes(selectName)) {
+            select.disabled = (items || []).length === 0;
+        } else {
+            select.disabled = false;
+        }
     }
 
-    function updateGroups() {
-        const brandId = document.querySelector('select[name="brandId"]').value;
-        if (!brandId) return;
-        fetch(`/filter/groups?brandId=${brandId}`)
-            .then(res => res.json())
-            .then(data => updateSelect('groupId', data.map(g => ({value: g.categoryId, text: g.name}))));
+    // resetSelect: по умолчанию НЕ блокируем селекты группы/подгруппы
+    function resetSelect(name, disable = false) {
+        const s = document.querySelector(`select[name="${name}"]`);
+        if (!s) return;
+        s.innerHTML = '<option value="">Выберите значение</option>';
+        s.value = '';
+        s.disabled = disable;
     }
 
-    function updateSubGroups() {
-        const groupId = document.querySelector('select[name="groupId"]').value;
-        if (!groupId) { updateSelect('subGroupId', []); return; }
-        const subgroups = allSubGroups.filter(sg => sg.parentCategoryId == groupId);
-        updateSelect('subGroupId', subgroups.map(sg => ({value: sg.categoryId, text: sg.name})));
+    function resetParams() {
+        ['param1','param2','param3','param4','param5'].forEach(p => resetSelect(p, true));
     }
 
-    function updateParameters() {
-        const brandId = document.querySelector('select[name="brandId"]').value;
-        const groupId = document.querySelector('select[name="groupId"]').value;
-        const subGroupId = document.querySelector('select[name="subGroupId"]').value;
+    // ====== LOADERS ======
 
-        let url = `/filter/parameters?`;
-        if (brandId)  url += `brandId=${brandId}&`;
-        if (groupId)  url += `groupId=${groupId}&`;
-        if (subGroupId) url += `subGroupId=${subGroupId}`;
+    // 1) ГРУППЫ: если бренд не выбран — грузим ВСЕ группы
+    // Требуется эндпоинт:
+    //  - /filter/groups?brandId=... (как было)
+    //  - /filter/groups/all         (для всех групп)
+    function loadGroups() {
+        const brandId = document.querySelector('[name="brandId"]')?.value?.trim();
+
+        const url = (brandId)
+            ? `/filter/groups?brandId=${encodeURIComponent(brandId)}`
+            : `/filter/groups/all`;
 
         fetch(url)
-            .then(res => res.json())
+            .then(r => r.json())
+            .then(data => updateSelect('groupId', (data || []).map(g => ({ value: g.categoryId, text: g.name }))))
+            .catch(e => console.error('groups load error', e));
+    }
+
+    // 2) ПОДГРУППЫ: если не выбрана группа (и/или бренд) — грузим ВСЕ подгруппы
+    // Требуется эндпоинт:
+    //  - /filter/subgroups?brandId=&groupId=... (как было)
+    //  - /filter/subgroups/all                   (у тебя он уже встречался ранее)
+    async function loadSubGroups() {
+        const brandId = document.querySelector('[name="brandId"]')?.value?.trim();
+        const groupId = document.querySelector('[name="groupId"]')?.value?.trim();
+
+        // Кандидаты URL (fallback)
+        const urls = [];
+
+        if (!brandId && !groupId) {
+            // Ничего не выбрано -> хотим ВСЕ подгруппы
+            urls.push('/filter/subgroups/all');
+            urls.push('/filter/subgroups'); // если бэк умеет отдавать все без параметров
+        } else {
+            // Есть бренд/группа -> фильтруем
+            const params = new URLSearchParams();
+            if (brandId) params.set('brandId', brandId);
+            if (groupId) params.set('groupId', groupId);
+            urls.push('/filter/subgroups?' + params.toString());
+
+            // запасной вариант: если бэк не поддерживает фильтр, хотя бы все
+            urls.push('/filter/subgroups/all');
+        }
+
+        for (const url of urls) {
+            try {
+                const r = await fetch(url);
+                if (!r.ok) continue;
+
+                const data = await r.json();
+
+                // Нормализация формата: ожидаем массив объектов {categoryId, name}
+                const list = (Array.isArray(data) ? data : [])
+                    .map(x => {
+                        // поддержка разных ключей (на случай DTO)
+                        const id = x.categoryId ?? x.id ?? x.subGroupId ?? x.value;
+                        const name = x.name ?? x.title ?? x.text;
+                        if (id == null || name == null) return null;
+                        return { value: id, text: name };
+                    })
+                    .filter(Boolean);
+
+                updateSelect('subGroupId', list);
+                return; // успешно загрузили
+            } catch (e) {
+                // пробуем следующий url
+            }
+        }
+
+        // если вообще ничего не получилось
+        updateSelect('subGroupId', []);
+    }
+
+
+    function loadParameters() {
+        const params = buildFilterParams();
+        fetch('/filter/parameters?' + params.toString())
+            .then(r => r.json())
             .then(data => {
-                ['param1','param2','param3','param4','param5'].forEach(param => {
-                    updateSelect(param, data[param + 'List'] || []);
+                const d = data || {};
+                ['param1','param2','param3','param4','param5'].forEach(p => {
+                    updateSelect(p, d[p + 'List'] || []);
                 });
+            })
+            .catch(e => console.error('parameters load error', e));
+    }
+
+    function loadProducts(page = 0) {
+        const list = document.getElementById('product-list');
+        if (!list) return;
+
+        const params = buildFilterParams();
+        const sort = (new URLSearchParams(window.location.search)).get('sort');
+        if (sort) params.set('sort', sort);
+        params.set('page', page);
+
+        fetch('/filter/results?' + params.toString(), {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+            .then(r => r.text())
+            .then(html => {
+                list.innerHTML = html;
+                currentPage = page;
+                loading = false;
+                document.getElementById('loader').style.display = 'none';
+            })
+            .catch(e => {
+                console.error('products load error', e);
+                loading = false;
+                document.getElementById('loader').style.display = 'none';
             });
     }
 
     function fetchAndApplyParamLabels() {
-        const groupId = document.querySelector('select[name="groupId"]').value;
-        const subGroupId = document.querySelector('select[name="subGroupId"]').value;
+        const groupId = document.querySelector('select[name="groupId"]')?.value;
+        const subGroupId = document.querySelector('select[name="subGroupId"]')?.value;
 
         const url = new URL('/filter/parameter-labels', window.location.origin);
         if (groupId) url.searchParams.set('groupId', groupId);
@@ -674,6 +566,7 @@
         fetch(url)
             .then(r => r.json())
             .then(labels => {
+                const lbl = labels || {};
                 for (let i = 1; i <= 5; i++) {
                     const key = 'param' + i;
                     const container = document.getElementById(key + '-container');
@@ -681,15 +574,16 @@
                     const select    = document.querySelector(`select[name="${key}"]`);
                     if (!container || !labelEl || !select) continue;
 
-                    const text = (labels[key] !== undefined && labels[key] !== null)
-                        ? labels[key] : ('Параметр ' + i);
+                    const text = (lbl[key] !== undefined && lbl[key] !== null)
+                        ? lbl[key]
+                        : ('Параметр ' + i);
 
                     if (text === '') {
                         labelEl.textContent = 'Параметр ' + i;
                         container.style.display = 'none';
                         select.value = '';
                     } else {
-                        labelEl.textContent = text.endsWith(':') ? text : (text + ':');
+                        labelEl.textContent = String(text).endsWith(':') ? text : (text + ':');
                         container.style.display = '';
                     }
                 }
@@ -698,25 +592,51 @@
     }
 
     // ====== FILTER CHANGE HANDLERS ======
-    function onAnyFilterChange() {
-        updateGroups();
-        updateSubGroups();
-        updateParameters();
+    function onBrandChange() {
+        // Бренд не должен блокировать выбор группы/подгруппы
+        // Просто обновляем списки под текущий бренд (или под "все" если бренд пустой)
+        resetParams();
+
+        // если бренд изменился — логично сбросить выбранные group/subGroup, но НЕ блокировать селекты
+        resetSelect('groupId', false);
+        resetSelect('subGroupId', false);
+
+        loadGroups();
+        loadSubGroups();
+        loadParameters();
         fetchAndApplyParamLabels();
+
+        currentPage = 0;
+        loadProducts(0);
     }
-    function onBrandChange() { onAnyFilterChange(); }
-    function onGroupChange() { updateSubGroups(); updateParameters(); fetchAndApplyParamLabels(); }
-    function onSubGroupChange() {
-        const subGroupId = document.querySelector('select[name="subGroupId"]').value;
-        if (subGroupId) {
-            const selected = allSubGroups.find(sg => sg.categoryId == subGroupId);
-            if (selected) {
-                document.querySelector('select[name="groupId"]').value = selected.parentCategoryId;
-                updateSubGroups();
-            }
-        }
-        updateParameters();
+
+    function onGroupChange() {
+        resetParams();
+
+        // Подгруппу сбрасываем, но селект НЕ блокируем
+        resetSelect('subGroupId', false);
+
+        loadSubGroups();
+        loadParameters();
         fetchAndApplyParamLabels();
+
+        currentPage = 0;
+        loadProducts(0);
+    }
+
+    function onSubGroupChange() {
+        resetParams();
+
+        loadParameters();
+        fetchAndApplyParamLabels();
+
+        currentPage = 0;
+        loadProducts(0);
+    }
+
+    function onParamChange() {
+        currentPage = 0;
+        loadProducts(0);
     }
 
     // ====== CART HELPERS ======
@@ -789,35 +709,27 @@
     });
 
     function loadNextPage() {
+        const list = document.getElementById('product-list');
+        if (!list) return;
+
         loading = true;
         document.getElementById('loader').style.display = 'block';
         currentPage++;
 
-        const params = new URLSearchParams({
-            brandId: document.querySelector('select[name="brandId"]').value,
-            groupId: document.querySelector('select[name="groupId"]').value,
-            subGroupId: document.querySelector('select[name="subGroupId"]').value,
-            param1: document.querySelector('select[name="param1"]').value,
-            param2: document.querySelector('select[name="param2"]').value,
-            param3: document.querySelector('select[name="param3"]').value,
-            param4: document.querySelector('select[name="param4"]').value,
-            param5: document.querySelector('select[name="param5"]').value,
-            sort: (new URLSearchParams(window.location.search)).get('sort'),
-            page: currentPage
-        });
+        const params = buildFilterParams();
+        const sort = (new URLSearchParams(window.location.search)).get('sort');
+        if (sort) params.set('sort', sort);
+        params.set('page', currentPage);
 
         fetch('/filter/results?' + params.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then(response => response.text())
+            .then(r => r.text())
             .then(html => {
                 const tempDiv = document.createElement('div');
                 tempDiv.innerHTML = html;
+
                 const newProducts = tempDiv.querySelectorAll('.list-group-item');
-                newProducts.forEach(item => {
-                    item.style.opacity = '0';
-                    item.style.transition = 'opacity 0.5s ease';
-                    document.getElementById('product-list').appendChild(item);
-                    setTimeout(() => { item.style.opacity = '1'; }, 50);
-                });
+                newProducts.forEach(item => list.appendChild(item));
+
                 document.getElementById('loader').style.display = 'none';
                 loading = false;
             })
@@ -829,7 +741,7 @@
     }
 
     // ====== SORT UI ======
-    document.getElementById('sortButton').addEventListener('click', function() {
+    document.getElementById('sortButton')?.addEventListener('click', function() {
         document.getElementById('sortModal').style.display = 'block';
     });
     window.addEventListener('click', function(event) {
@@ -840,8 +752,10 @@
         const selected = document.querySelectorAll('input[name="sortOption"]:checked');
         const sortValues = Array.from(selected).map(i => i.value);
         const params = new URLSearchParams(window.location.search);
+
         if (sortValues.length > 0) params.set('sort', sortValues.join(','));
         else params.delete('sort');
+
         params.set('page', 0);
         window.location.href = '/filter/results?' + params.toString();
     }
@@ -852,9 +766,9 @@
             .then(r => r.json())
             .then(product => {
                 document.getElementById('edit-product-id').value = product.productId;
-                document.getElementById('edit-name').value = product.name;
-                document.getElementById('edit-price').value = product.price;
-                document.getElementById('edit-article').value = product.articleCode;
+                document.getElementById('edit-name').value = product.name ?? '';
+                document.getElementById('edit-price').value = product.price ?? '';
+                document.getElementById('edit-article').value = product.articleCode ?? '';
                 document.getElementById('editModal').style.display = 'block';
             });
     }
@@ -880,7 +794,7 @@
         document.getElementById('deleteModal').style.display = 'none';
         document.getElementById('modalOverlay').style.display = 'none';
     }
-    document.getElementById('confirmDeleteBtn').addEventListener('click', function () {
+    document.getElementById('confirmDeleteBtn')?.addEventListener('click', function () {
         if (!productToDelete) return;
         fetch('/admin/api/product/' + productToDelete, { method: 'DELETE' })
             .then(() => {
@@ -904,21 +818,13 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
-    // ====== INITIALIZE ======
-    document.addEventListener('DOMContentLoaded', function () {
-        fetch('/filter/subgroups/all')
-            .then(res => res.json())
-            .then(data => {
-                allSubGroups = data || [];
-                const groupId = document.querySelector('select[name="groupId"]').value;
-                if (groupId) updateSubGroups();
-                onAnyFilterChange();
-            });
-        fetchAndApplyParamLabels();
-    });
-
-    // ====== COEF MODAL LOGIC ======
+    // ====== COEF MODAL LOGIC + INITIALIZE ======
     document.addEventListener('DOMContentLoaded', () => {
+        // Инициализация: грузим группы/подгруппы даже без бренда
+        loadGroups();
+        loadSubGroups();
+        loadParameters();
+        fetchAndApplyParamLabels();
 
         function updateCoefTypeUI() {
             const type = document.querySelector('input[name="coefType"]:checked')?.value;
@@ -941,7 +847,7 @@
                     const sel = document.getElementById('coefSupplierId');
                     if (!sel) return;
                     sel.innerHTML = '<option value="">Выберите поставщика</option>';
-                    list.forEach(s => {
+                    (list || []).forEach(s => {
                         const opt = document.createElement('option');
                         opt.value = s.supplierId;
                         opt.textContent = s.name;
@@ -961,13 +867,11 @@
     });
 
     function applyCoefficient() {
-        const type = document.querySelector('input[name="coefType"]:checked').value;
+        const type = document.querySelector('input[name="coefType"]:checked')?.value;
         const coef = parseFloat(document.getElementById('coefValue').value);
 
-        if (isNaN(coef) || coef <= 0) {
-            alert('Введите корректный коэффициент > 0');
-            return;
-        }
+        if (!type) { alert('Выберите тип коэффициента'); return; }
+        if (isNaN(coef) || coef <= 0) { alert('Введите корректный коэффициент > 0'); return; }
 
         let id;
         if (type === 'brand') {
@@ -981,7 +885,7 @@
         fetch('/admin/api/prices/apply-coef', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ type, id: parseInt(id), coef })
+            body: JSON.stringify({ type, id: parseInt(id, 10), coef })
         }).then(r => {
             if (!r.ok) throw new Error();
             alert('Коэффициент применён');
