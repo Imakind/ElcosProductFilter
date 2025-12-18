@@ -86,7 +86,7 @@
                     <option th:each="brand : ${brands}"
                             th:value="${brand.brandId}"
                             th:text="${brand.brandName}"
-                            th:selected="${brand.brandId == filterParams['brandId']}">
+                            th:selected="${filterParams['brandId'] != null and brand.brandId == T(java.lang.Integer).valueOf(filterParams['brandId'])}">
                     </option>
                 </select>
             </div>
@@ -98,7 +98,7 @@
                     <option th:each="group : ${groups}"
                             th:value="${group.categoryId}"
                             th:text="${group.name}"
-                            th:selected="${group.categoryId == filterParams['groupId']}">
+                            th:selected="${filterParams['groupId'] != null and group.categoryId == T(java.lang.Integer).valueOf(filterParams['groupId'])}">
                     </option>
                 </select>
             </div>
@@ -110,7 +110,7 @@
                     <option th:each="sub : ${subGroups}"
                             th:value="${sub.categoryId}"
                             th:text="${sub.name}"
-                            th:selected="${sub.categoryId == filterParams['subGroupId']}">
+                            th:selected="${filterParams['subGroupId'] != null and sub.categoryId == T(java.lang.Integer).valueOf(filterParams['subGroupId'])}">
                     </option>
                 </select>
             </div>
@@ -391,7 +391,28 @@
     const totalPages = /*[[${totalPages}]]*/ 1;
     let loading = false;
 
-    // ====== HELPERS ======
+    // ===== URL STATE =====
+    const urlState = (() => {
+        const qs = new URLSearchParams(window.location.search);
+        const keys = ['brandId','groupId','subGroupId','param1','param2','param3','param4','param5','keyword'];
+        const s = {};
+        keys.forEach(k => {
+            const v = qs.get(k);
+            if (v !== null && String(v).trim() !== '') s[k] = v;
+        });
+        return s;
+    })();
+
+    function applyUrlStateToForm() {
+        Object.keys(urlState).forEach(name => {
+            const el = document.querySelector(`[name="${name}"]`);
+            if (!el) return;
+            if (String(el.value ?? '').trim() === '') {
+                el.value = urlState[name];
+            }
+        });
+    }
+
     function buildFilterParams() {
         const params = new URLSearchParams();
         ['brandId','groupId','subGroupId','param1','param2','param3','param4','param5','keyword']
@@ -408,7 +429,10 @@
         const select = document.querySelector(`select[name="${selectName}"]`);
         if (!select) return;
 
-        const currentValue = select.value;
+        const currentValue = (String(select.value ?? '').trim() !== '')
+            ? select.value
+            : (urlState[selectName] ?? '');
+
         select.innerHTML = '<option value="">Выберите значение</option>';
 
         (items || []).forEach(item => {
@@ -419,8 +443,6 @@
             select.appendChild(option);
         });
 
-        // ВАЖНО: groupId/subGroupId должны быть доступны даже если список пуст (пользователь может начать с другого фильтра)
-        // Поэтому disabled выставляем только для paramX
         if (['param1','param2','param3','param4','param5'].includes(selectName)) {
             select.disabled = (items || []).length === 0;
         } else {
@@ -428,7 +450,6 @@
         }
     }
 
-    // resetSelect: по умолчанию НЕ блокируем селекты группы/подгруппы
     function resetSelect(name, disable = false) {
         const s = document.querySelector(`select[name="${name}"]`);
         if (!s) return;
@@ -441,458 +462,146 @@
         ['param1','param2','param3','param4','param5'].forEach(p => resetSelect(p, true));
     }
 
-    // ====== LOADERS ======
-
-    // 1) ГРУППЫ: если бренд не выбран — грузим ВСЕ группы
-    // Требуется эндпоинт:
-    //  - /filter/groups?brandId=... (как было)
-    //  - /filter/groups/all         (для всех групп)
-    function loadGroups() {
+    // ====== LOADERS (ВАЖНО: возвращаем Promise, чтобы можно было await) ======
+    async function loadGroups() {
         const brandId = document.querySelector('[name="brandId"]')?.value?.trim();
-
         const url = (brandId)
             ? `/filter/groups?brandId=${encodeURIComponent(brandId)}`
             : `/filter/groups/all`;
 
-        fetch(url)
-            .then(r => r.json())
-            .then(data => updateSelect('groupId', (data || []).map(g => ({ value: g.categoryId, text: g.name }))))
-            .catch(e => console.error('groups load error', e));
+        const r = await fetch(url);
+        const data = r.ok ? await r.json() : [];
+        updateSelect('groupId', (data || []).map(g => ({ value: g.categoryId, text: g.name })));
     }
 
-    // 2) ПОДГРУППЫ: если не выбрана группа (и/или бренд) — грузим ВСЕ подгруппы
-    // Требуется эндпоинт:
-    //  - /filter/subgroups?brandId=&groupId=... (как было)
-    //  - /filter/subgroups/all                   (у тебя он уже встречался ранее)
     async function loadSubGroups() {
         const brandId = document.querySelector('[name="brandId"]')?.value?.trim();
         const groupId = document.querySelector('[name="groupId"]')?.value?.trim();
 
-        // Кандидаты URL (fallback)
-        const urls = [];
+        const subGroupId = document.querySelector('[name="subGroupId"]')?.value?.trim()
+            || (urlState.subGroupId ? String(urlState.subGroupId) : '');
 
-        if (!brandId && !groupId) {
-            // Ничего не выбрано -> хотим ВСЕ подгруппы
-            urls.push('/filter/subgroups/all');
-            urls.push('/filter/subgroups'); // если бэк умеет отдавать все без параметров
-        } else {
-            // Есть бренд/группа -> фильтруем
-            const params = new URLSearchParams();
-            if (brandId) params.set('brandId', brandId);
-            if (groupId) params.set('groupId', groupId);
-            urls.push('/filter/subgroups?' + params.toString());
+        const params = new URLSearchParams();
+        if (brandId) params.set('brandId', brandId);
+        if (groupId) params.set('groupId', groupId);
+        if (subGroupId) params.set('subGroupId', subGroupId);
 
-            // запасной вариант: если бэк не поддерживает фильтр, хотя бы все
-            urls.push('/filter/subgroups/all');
-        }
+        const url = '/filter/subgroups' + (params.toString() ? ('?' + params.toString()) : '');
 
-        for (const url of urls) {
-            try {
-                const r = await fetch(url);
-                if (!r.ok) continue;
+        const r = await fetch(url);
+        const data = r.ok ? await r.json() : [];
+        const list = (Array.isArray(data) ? data : [])
+            .map(x => ({ value: x.categoryId, text: x.name }))
+            .filter(x => x.value != null && x.text != null);
 
-                const data = await r.json();
-
-                // Нормализация формата: ожидаем массив объектов {categoryId, name}
-                const list = (Array.isArray(data) ? data : [])
-                    .map(x => {
-                        // поддержка разных ключей (на случай DTO)
-                        const id = x.categoryId ?? x.id ?? x.subGroupId ?? x.value;
-                        const name = x.name ?? x.title ?? x.text;
-                        if (id == null || name == null) return null;
-                        return { value: id, text: name };
-                    })
-                    .filter(Boolean);
-
-                updateSelect('subGroupId', list);
-                return; // успешно загрузили
-            } catch (e) {
-                // пробуем следующий url
-            }
-        }
-
-        // если вообще ничего не получилось
-        updateSelect('subGroupId', []);
+        updateSelect('subGroupId', list);
     }
 
-
-    function loadParameters() {
+    async function loadParameters() {
         const params = buildFilterParams();
-        fetch('/filter/parameters?' + params.toString())
-            .then(r => r.json())
-            .then(data => {
-                const d = data || {};
-                ['param1','param2','param3','param4','param5'].forEach(p => {
-                    updateSelect(p, d[p + 'List'] || []);
-                });
-            })
-            .catch(e => console.error('parameters load error', e));
+        const r = await fetch('/filter/parameters?' + params.toString());
+        const data = r.ok ? await r.json() : {};
+        const d = data || {};
+        ['param1','param2','param3','param4','param5'].forEach(p => {
+            updateSelect(p, d[p + 'List'] || []);
+        });
     }
 
-    function loadProducts(page = 0) {
-        const list = document.getElementById('product-list');
-        if (!list) return;
-
-        const params = buildFilterParams();
-        const sort = (new URLSearchParams(window.location.search)).get('sort');
-        if (sort) params.set('sort', sort);
-        params.set('page', page);
-
-        fetch('/filter/results?' + params.toString(), {
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        })
-            .then(r => r.text())
-            .then(html => {
-                list.innerHTML = html;
-                currentPage = page;
-                loading = false;
-                document.getElementById('loader').style.display = 'none';
-            })
-            .catch(e => {
-                console.error('products load error', e);
-                loading = false;
-                document.getElementById('loader').style.display = 'none';
-            });
-    }
-
-    function fetchAndApplyParamLabels() {
-        const groupId = document.querySelector('select[name="groupId"]')?.value;
-        const subGroupId = document.querySelector('select[name="subGroupId"]')?.value;
+    async function fetchAndApplyParamLabels() {
+        const groupId = document.querySelector('select[name="groupId"]')?.value || urlState.groupId;
+        const subGroupId = document.querySelector('select[name="subGroupId"]')?.value || urlState.subGroupId;
 
         const url = new URL('/filter/parameter-labels', window.location.origin);
         if (groupId) url.searchParams.set('groupId', groupId);
         if (subGroupId) url.searchParams.set('subGroupId', subGroupId);
 
-        fetch(url)
-            .then(r => r.json())
-            .then(labels => {
-                const lbl = labels || {};
-                for (let i = 1; i <= 5; i++) {
-                    const key = 'param' + i;
-                    const container = document.getElementById(key + '-container');
-                    const labelEl   = document.getElementById('label-' + key);
-                    const select    = document.querySelector(`select[name="${key}"]`);
-                    if (!container || !labelEl || !select) continue;
+        const r = await fetch(url);
+        const labels = r.ok ? await r.json() : {};
+        const lbl = labels || {};
 
-                    const text = (lbl[key] !== undefined && lbl[key] !== null)
-                        ? lbl[key]
-                        : ('Параметр ' + i);
+        for (let i = 1; i <= 5; i++) {
+            const key = 'param' + i;
+            const container = document.getElementById(key + '-container');
+            const labelEl   = document.getElementById('label-' + key);
+            const select    = document.querySelector(`select[name="${key}"]`);
+            if (!container || !labelEl || !select) continue;
 
-                    if (text === '') {
-                        labelEl.textContent = 'Параметр ' + i;
-                        container.style.display = 'none';
-                        select.value = '';
-                    } else {
-                        labelEl.textContent = String(text).endsWith(':') ? text : (text + ':');
-                        container.style.display = '';
-                    }
-                }
-            })
-            .catch(err => console.error('parameter-labels failed', err));
+            const text = (lbl[key] !== undefined && lbl[key] !== null) ? lbl[key] : ('Параметр ' + i);
+
+            if (text === '') {
+                // скрываем параметр, но НЕ трогаем другие селекты
+                container.style.display = 'none';
+                select.value = '';
+            } else {
+                labelEl.textContent = String(text).endsWith(':') ? text : (text + ':');
+                container.style.display = '';
+            }
+        }
     }
 
-    // ====== FILTER CHANGE HANDLERS ======
-    function onBrandChange() {
-        // Бренд не должен блокировать выбор группы/подгруппы
-        // Просто обновляем списки под текущий бренд (или под "все" если бренд пустой)
+    function autoSubmit() {
+        const form = document.querySelector('form[method="get"]');
+        if (!form) return;
+        if (form.requestSubmit) form.requestSubmit();
+        else form.submit();
+    }
+    // ====== FILTER CHANGE HANDLERS (строго по порядку) ======
+    async function onBrandChange() {
         resetParams();
-
-        // если бренд изменился — логично сбросить выбранные group/subGroup, но НЕ блокировать селекты
         resetSelect('groupId', false);
         resetSelect('subGroupId', false);
 
-        loadGroups();
-        loadSubGroups();
-        loadParameters();
-        fetchAndApplyParamLabels();
+        await loadGroups();
+        await loadSubGroups();
+        await loadParameters();
+        await fetchAndApplyParamLabels();
 
         currentPage = 0;
-        loadProducts(0);
+        autosubmit();
     }
 
-    function onGroupChange() {
+    async function onGroupChange() {
         resetParams();
-
-        // Подгруппу сбрасываем, но селект НЕ блокируем
         resetSelect('subGroupId', false);
 
-        loadSubGroups();
-        loadParameters();
-        fetchAndApplyParamLabels();
+        await loadSubGroups();
+        await loadParameters();
+        await fetchAndApplyParamLabels();
 
         currentPage = 0;
-        loadProducts(0);
+        autosubmit();
     }
 
-    function onSubGroupChange() {
+    async function onSubGroupChange() {
         resetParams();
 
-        loadParameters();
-        fetchAndApplyParamLabels();
+        await loadParameters();
+        await fetchAndApplyParamLabels();
 
         currentPage = 0;
-        loadProducts(0);
+        autosubmit();
     }
 
     function onParamChange() {
         currentPage = 0;
-        loadProducts(0);
+        autosubmit();
+        // тут ничего не грузим автоматически, потому что у тебя серверный submit по кнопке "Применить"
     }
 
-    // ====== CART HELPERS ======
-    function addToCart(productId) {
-        fetch('/cart/add?productId=' + productId, { method: 'POST' })
-            .then(() => {
-                const counter = document.getElementById('counter-' + productId);
-                if (counter) counter.value = (parseInt(counter.value) || 0) + 1;
-                const cartCounter = document.getElementById('cart-counter');
-                if (cartCounter) cartCounter.innerText = parseInt(cartCounter.innerText) + 1;
-                highlightProduct(productId);
-            });
-    }
+    // ===== INIT =====
+    document.addEventListener('DOMContentLoaded', async () => {
+        applyUrlStateToForm();
 
-    function removeFromCart(productId) {
-        fetch('/cart/remove', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'productId=' + productId
-        }).then(() => {
-            const counter = document.getElementById('counter-' + productId);
-            if (counter) {
-                const newValue = (parseInt(counter.value) || 0) - 1;
-                counter.value = Math.max(newValue, 0);
-                if (counter.value == 0) unhighlightProduct(productId);
-            }
-            const cartCounter = document.getElementById('cart-counter');
-            if (cartCounter) cartCounter.innerText = Math.max(0, parseInt(cartCounter.innerText) - 1);
-        });
-    }
-
-    function manualQuantityChange(input) {
-        const productId = input.id.split('-')[1];
-        const newQuantity = parseInt(input.value);
-        if (isNaN(newQuantity) || newQuantity < 0) { input.value = 0; return; }
-
-        fetch('/cart/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'productId=' + productId + '&quantity=' + newQuantity
-        })
-            .then(() => {
-                if (newQuantity === 0) unhighlightProduct(productId);
-                else highlightProduct(productId);
-                updateCartCounterManually();
-            });
-    }
-
-    function highlightProduct(productId) {
-        const productBlock = document.getElementById('product-' + productId);
-        if (productBlock) productBlock.classList.add('border','border-success','rounded','shadow-sm','bg-light');
-    }
-    function unhighlightProduct(productId) {
-        const productBlock = document.getElementById('product-' + productId);
-        if (productBlock) productBlock.classList.remove('border','border-success','rounded','shadow-sm','bg-light');
-    }
-    function updateCartCounterManually() {
-        let total = 0;
-        document.querySelectorAll('input[id^="counter-"]').forEach(c => total += parseInt(c.value) || 0);
-        const cartCounter = document.getElementById('cart-counter');
-        if (cartCounter) cartCounter.innerText = total;
-    }
-
-    // ====== INFINITE SCROLL ======
-    window.addEventListener('scroll', () => {
-        if (loading) return;
-        if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 200) {
-            if (currentPage + 1 < totalPages) loadNextPage();
-        }
+        await loadGroups();
+        await loadSubGroups();
+        await loadParameters();
+        await fetchAndApplyParamLabels();
     });
-
-    function loadNextPage() {
-        const list = document.getElementById('product-list');
-        if (!list) return;
-
-        loading = true;
-        document.getElementById('loader').style.display = 'block';
-        currentPage++;
-
-        const params = buildFilterParams();
-        const sort = (new URLSearchParams(window.location.search)).get('sort');
-        if (sort) params.set('sort', sort);
-        params.set('page', currentPage);
-
-        fetch('/filter/results?' + params.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then(r => r.text())
-            .then(html => {
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = html;
-
-                const newProducts = tempDiv.querySelectorAll('.list-group-item');
-                newProducts.forEach(item => list.appendChild(item));
-
-                document.getElementById('loader').style.display = 'none';
-                loading = false;
-            })
-            .catch(error => {
-                console.error('Ошибка загрузки товаров:', error);
-                document.getElementById('loader').style.display = 'none';
-                loading = false;
-            });
-    }
-
-    // ====== SORT UI ======
-    document.getElementById('sortButton')?.addEventListener('click', function() {
-        document.getElementById('sortModal').style.display = 'block';
-    });
-    window.addEventListener('click', function(event) {
-        const modal = document.getElementById('sortModal');
-        if (event.target === modal) modal.style.display = 'none';
-    });
-    function applySort() {
-        const selected = document.querySelectorAll('input[name="sortOption"]:checked');
-        const sortValues = Array.from(selected).map(i => i.value);
-        const params = new URLSearchParams(window.location.search);
-
-        if (sortValues.length > 0) params.set('sort', sortValues.join(','));
-        else params.delete('sort');
-
-        params.set('page', 0);
-        window.location.href = '/filter/results?' + params.toString();
-    }
-
-    // ====== EDIT / DELETE ======
-    function openEditModal(productId) {
-        fetch('/admin/api/product?id=' + productId)
-            .then(r => r.json())
-            .then(product => {
-                document.getElementById('edit-product-id').value = product.productId;
-                document.getElementById('edit-name').value = product.name ?? '';
-                document.getElementById('edit-price').value = product.price ?? '';
-                document.getElementById('edit-article').value = product.articleCode ?? '';
-                document.getElementById('editModal').style.display = 'block';
-            });
-    }
-    function closeEditModal() {
-        document.getElementById('editModal').style.display = 'none';
-    }
-    document.getElementById('editProductForm')?.addEventListener('submit', function (e) {
-        e.preventDefault();
-        const formData = new FormData(this);
-        fetch('/admin/api/edit-product', { method: 'POST', body: new URLSearchParams(formData) })
-            .then(() => { closeEditModal(); location.reload(); });
-    });
-
-    let productToDelete = null;
-    function showDeleteConfirmation(productId) {
-        productToDelete = productId;
-        document.getElementById('modalOverlay').style.display = 'block';
-        document.getElementById('deleteModal').style.display = 'block';
-        document.getElementById('confirmDeleteBtn').focus();
-    }
-    function closeDeleteModal() {
-        productToDelete = null;
-        document.getElementById('deleteModal').style.display = 'none';
-        document.getElementById('modalOverlay').style.display = 'none';
-    }
-    document.getElementById('confirmDeleteBtn')?.addEventListener('click', function () {
-        if (!productToDelete) return;
-        fetch('/admin/api/product/' + productToDelete, { method: 'DELETE' })
-            .then(() => {
-                document.getElementById('product-' + productToDelete)?.remove();
-                closeDeleteModal();
-            });
-    });
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && document.getElementById('deleteModal').style.display === 'block')
-            document.getElementById('confirmDeleteBtn').click();
-        if (e.key === 'Escape') closeDeleteModal();
-    });
-
-    // ====== SCROLL TO TOP ======
-    const scrollTopBtn = document.getElementById("scrollTopBtn");
-    window.addEventListener("scroll", function () {
-        if (window.scrollY > 200) scrollTopBtn.classList.add("show");
-        else scrollTopBtn.classList.remove("show");
-    });
-    scrollTopBtn.addEventListener("click", function () {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-
-    // ====== COEF MODAL LOGIC + INITIALIZE ======
-    document.addEventListener('DOMContentLoaded', () => {
-        // Инициализация: грузим группы/подгруппы даже без бренда
-        loadGroups();
-        loadSubGroups();
-        loadParameters();
-        fetchAndApplyParamLabels();
-
-        function updateCoefTypeUI() {
-            const type = document.querySelector('input[name="coefType"]:checked')?.value;
-            const brandBlock = document.getElementById('brandSelectBlock');
-            const supplierBlock = document.getElementById('supplierSelectBlock');
-            if (!brandBlock || !supplierBlock) return;
-
-            brandBlock.classList.toggle('d-none', type !== 'brand');
-            supplierBlock.classList.toggle('d-none', type !== 'supplier');
-        }
-
-        document.querySelectorAll('input[name="coefType"]').forEach(r => {
-            r.addEventListener('change', updateCoefTypeUI);
-        });
-
-        function loadSuppliersForCoefModal() {
-            fetch('/admin/api/suppliers')
-                .then(r => r.json())
-                .then(list => {
-                    const sel = document.getElementById('coefSupplierId');
-                    if (!sel) return;
-                    sel.innerHTML = '<option value="">Выберите поставщика</option>';
-                    (list || []).forEach(s => {
-                        const opt = document.createElement('option');
-                        opt.value = s.supplierId;
-                        opt.textContent = s.name;
-                        sel.appendChild(opt);
-                    });
-                })
-                .catch(e => console.error('suppliers load error', e));
-        }
-
-        const coefModalEl = document.getElementById('coefModal');
-        if (coefModalEl) {
-            coefModalEl.addEventListener('shown.bs.modal', () => {
-                updateCoefTypeUI();
-                loadSuppliersForCoefModal();
-            });
-        }
-    });
-
-    function applyCoefficient() {
-        const type = document.querySelector('input[name="coefType"]:checked')?.value;
-        const coef = parseFloat(document.getElementById('coefValue').value);
-
-        if (!type) { alert('Выберите тип коэффициента'); return; }
-        if (isNaN(coef) || coef <= 0) { alert('Введите корректный коэффициент > 0'); return; }
-
-        let id;
-        if (type === 'brand') {
-            id = document.getElementById('coefBrandId').value;
-            if (!id) { alert('Выберите бренд'); return; }
-        } else {
-            id = document.getElementById('coefSupplierId').value;
-            if (!id) { alert('Выберите поставщика'); return; }
-        }
-
-        fetch('/admin/api/prices/apply-coef', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ type, id: parseInt(id, 10), coef })
-        }).then(r => {
-            if (!r.ok) throw new Error();
-            alert('Коэффициент применён');
-            location.reload();
-        }).catch(() => alert('Ошибка применения коэффициента'));
-    }
 </script>
+
+
+
+
 
 </body>
 </html>
