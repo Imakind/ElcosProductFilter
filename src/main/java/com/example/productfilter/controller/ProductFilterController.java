@@ -384,6 +384,9 @@ public class ProductFilterController {
                         : categoryRepo.findAllSubGroupsOrderByNameAsc()
         );
 
+
+        Set<Integer> idsForParams = noFilters ? null : ids;
+
         if (noFilters) {
             model.addAttribute("param1List", parameterRepo.findDistinctParam1());
             model.addAttribute("param2List", parameterRepo.findDistinctParam2());
@@ -391,9 +394,10 @@ public class ProductFilterController {
             model.addAttribute("param4List", parameterRepo.findDistinctParam4());
             model.addAttribute("param5List", parameterRepo.findDistinctParam5());
         } else {
-            List<ProductParameters> params = ids.isEmpty()
-                    ? List.of()
-                    : parameterRepo.findByProduct_ProductIdIn(ids);
+            List<ProductParameters> params =
+                    (idsForParams == null || idsForParams.isEmpty())
+                            ? List.of()
+                            : parameterRepo.findByProduct_ProductIdIn(idsForParams);
 
             model.addAttribute("param1List", params.stream().map(ProductParameters::getParam1).filter(Objects::nonNull).collect(toSet()));
             model.addAttribute("param2List", params.stream().map(ProductParameters::getParam2).filter(Objects::nonNull).collect(toSet()));
@@ -401,6 +405,7 @@ public class ProductFilterController {
             model.addAttribute("param4List", params.stream().map(ProductParameters::getParam4).filter(Objects::nonNull).collect(toSet()));
             model.addAttribute("param5List", params.stream().map(ProductParameters::getParam5).filter(Objects::nonNull).collect(toSet()));
         }
+
 
         Map<String, Object> selectedParams = new HashMap<>();
         selectedParams.put("brandId", brandId);
@@ -439,7 +444,7 @@ public class ProductFilterController {
     public void addToCart(@RequestParam("productId") Integer productId,
                           @RequestParam(value = "sectionId", required = false) Long sectionId,
                           HttpSession session) {
-        @SuppressWarnings("unchecked")
+
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
         if (cart == null) cart = new HashMap<>();
         cart.put(productId, cart.getOrDefault(productId, 0) + 1);
@@ -447,7 +452,9 @@ public class ProductFilterController {
 
         Map<Long, String> sec = ensureSections(session);
         Long sid = (sectionId != null && sec.containsKey(sectionId)) ? sectionId : 1L;
-        ensureProductSection(session).put(productId, sid);
+
+        Map<Integer, Long> productSection = ensureProductSection(session);
+        productSection.putIfAbsent(productId, sid);   // ✅ фикс
     }
 
     // === НОВОЕ: переименование секции («папки») ===
@@ -468,14 +475,13 @@ public class ProductFilterController {
         return Map.of("ok", true, "id", sectionId, "name", name.trim());
     }
 
-    // === НОВОЕ: установка количества товара и пересчёт сумм ===
     @PostMapping("/cart/set-qty")
     @ResponseBody
     public Map<String, Object> setQuantity(@RequestParam Integer productId,
                                            @RequestParam Integer qty,
                                            HttpSession s) {
-        if (productId == null) return Map.of("ok", false, "msg", "Нет productId");
-        if (qty == null || qty < 1) qty = 1;
+        if (productId == null)
+            return Map.of("ok", false, "msg", "Нет productId");
 
         @SuppressWarnings("unchecked")
         Map<Integer, Integer> cart = (Map<Integer, Integer>) s.getAttribute("cart");
@@ -483,8 +489,35 @@ public class ProductFilterController {
             return Map.of("ok", false, "msg", "Товар не в корзине");
         }
 
+        // ===== 🔥 УДАЛЕНИЕ ТОВАРА ПРИ qty <= 0 =====
+        if (qty == null || qty <= 0) {
+            cart.remove(productId);
+            s.setAttribute("cart", cart);
+
+            ensureProductSection(s).remove(productId);
+            ensureProductSectionQty(s).remove(productId);
+
+            Map<Integer, Double> coeff =
+                    (Map<Integer, Double>) s.getAttribute("coefficientMap");
+            if (coeff != null) coeff.remove(productId);
+
+            // удалить виртуальный, если это виртуальный
+            Object scoped = s.getAttribute("scopedTarget.cartStore");
+            if (scoped instanceof com.example.productfilter.service.CartStore cs) {
+                cs.remove(productId);
+            }
+
+            return Map.of(
+                    "ok", true,
+                    "removed", true,
+                    "productId", productId
+            );
+        }
+
+        // ===== если qty > 0 — обычная логика =====
         cart.put(productId, qty);
         s.setAttribute("cart", cart);
+
 
         // ужать разбиения по секциям, если они больше нового qty
         Map<Integer, Map<Long, Integer>> splits = ensureProductSectionQty(s);

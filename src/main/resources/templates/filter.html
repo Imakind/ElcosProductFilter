@@ -695,6 +695,151 @@
 
         initInfiniteScroll();
     });
+    window.addToCart = function(productId) {
+        fetch("/cart/add", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: "productId=" + encodeURIComponent(productId)
+        }).then(r => {
+            if (!r.ok) return;
+
+            // локально увеличиваем input у товара
+            const input = document.getElementById("counter-" + productId);
+            if (input) input.value = (parseInt(input.value || "0") + 1);
+
+            // обновляем глобальный счетчик корзины
+            const cartCounter = document.getElementById("cart-counter");
+            if (cartCounter) cartCounter.innerText =
+                parseInt(cartCounter.innerText || "0") + 1;
+        }).catch(e => console.error("addToCart error", e));
+    };
+    window.removeFromCart = function(productId) {
+        fetch('/cart/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'productId=' + productId
+        }).then(() => {
+            const counter = document.getElementById('counter-' + productId);
+            if (counter) {
+                const newValue = (parseInt(counter.value) || 0) - 1;
+                counter.value = Math.max(newValue, 0);
+                if (counter.value == 0) unhighlightProduct(productId);
+            }
+
+            const cartCounter = document.getElementById('cart-counter');
+            if (cartCounter)
+                cartCounter.innerText = Math.max(0, parseInt(cartCounter.innerText) - 1);
+        }).catch(e => console.error("removeFromCart error", e));
+    };
+
+    window.manualQuantityChange = function(input) {
+        const productId = input.id.split('-')[1];
+        const newQuantity = parseInt(input.value);
+
+        if (isNaN(newQuantity) || newQuantity < 0) {
+            input.value = 0;
+            return;
+        }
+
+        fetch('/cart/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'productId=' + productId + '&quantity=' + newQuantity
+        }).then(() => {
+            if (newQuantity === 0) unhighlightProduct(productId);
+            else highlightProduct(productId);
+            updateCartCounterManually();
+        }).catch(e => console.error("manualQuantityChange error", e));
+    };
+
+    window.highlightProduct = function(productId) {
+        const el = document.getElementById('product-' + productId);
+        if (el) el.classList.add('border','border-success','rounded','shadow-sm','bg-light');
+    };
+
+    window.unhighlightProduct = function(productId) {
+        const el = document.getElementById('product-' + productId);
+        if (el) el.classList.remove('border','border-success','rounded','shadow-sm','bg-light');
+    };
+
+    window.updateCartCounterManually = function() {
+        let total = 0;
+        document.querySelectorAll('input[id^="counter-"]').forEach(c =>
+            total += parseInt(c.value) || 0
+        );
+        const cartCounter = document.getElementById('cart-counter');
+        if (cartCounter) cartCounter.innerText = total;
+    };
+
+    const scrollTopBtn = document.getElementById("scrollTopBtn");
+
+    window.addEventListener("scroll", function () {
+        if (window.scrollY > 200) scrollTopBtn.classList.add("show");
+        else scrollTopBtn.classList.remove("show");
+    });
+
+    scrollTopBtn.addEventListener("click", function () {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    document.addEventListener('DOMContentLoaded', () => {
+        function updateCoefTypeUI() {
+            const type = document.querySelector('input[name="coefType"]:checked')?.value;
+            document.getElementById('brandSelectBlock').classList.toggle('d-none', type !== 'brand');
+            document.getElementById('supplierSelectBlock').classList.toggle('d-none', type !== 'supplier');
+        }
+
+        document.querySelectorAll('input[name="coefType"]').forEach(r =>
+            r.addEventListener('change', updateCoefTypeUI)
+        );
+
+        function loadSuppliersForCoefModal() {
+            fetch('/admin/api/suppliers')
+                .then(r => r.json())
+                .then(list => {
+                    const sel = document.getElementById('coefSupplierId');
+                    sel.innerHTML = '<option value="">Выберите поставщика</option>';
+                    list.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s.supplierId;
+                        opt.textContent = s.name;
+                        sel.appendChild(opt);
+                    });
+                });
+        }
+
+        const coefModalEl = document.getElementById('coefModal');
+        if (coefModalEl) {
+            coefModalEl.addEventListener('shown.bs.modal', () => {
+                updateCoefTypeUI();
+                loadSuppliersForCoefModal();
+            });
+        }
+    });
+    function applyCoefficient() {
+        const type = document.querySelector('input[name="coefType"]:checked').value;
+        const coef = parseFloat(document.getElementById('coefValue').value);
+
+        if (isNaN(coef) || coef <= 0) { alert('Введите коэффициент > 0'); return; }
+
+        let id = (type === 'brand')
+            ? document.getElementById('coefBrandId').value
+            : document.getElementById('coefSupplierId').value;
+
+        if (!id) { alert('Выберите объект'); return; }
+
+        fetch('/admin/api/prices/apply-coef', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ type, id: parseInt(id), coef })
+        }).then(r => {
+            if (!r.ok) throw new Error();
+            alert('Коэффициент применён');
+            location.reload();
+        }).catch(() => alert('Ошибка'));
+    }
+
 </script>
 
 </body>
