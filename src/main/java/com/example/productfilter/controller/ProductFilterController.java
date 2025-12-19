@@ -5,6 +5,7 @@ import com.example.productfilter.dto.ProposalHistoryView;
 import com.example.productfilter.model.*;
 import com.example.productfilter.repository.*;
 import com.example.productfilter.repository.spec.ProductSpecs;
+import com.example.productfilter.service.CartStore;
 import com.example.productfilter.service.ExcelImportWithSmartParserService;
 import com.example.productfilter.service.ProductFilterService;
 import com.example.productfilter.service.ProposalService;
@@ -80,6 +81,7 @@ public class ProductFilterController {
     @Autowired
     private ProductFilterService productFilterService;
     private final SearchNormalizer normalizer;
+    private final CartStore cartStore;
 
     private final ProposalService proposalService;
     private final ExcelImportWithSmartParserService excelImportWithSmartParserService;
@@ -90,10 +92,11 @@ public class ProductFilterController {
 
 
     public ProductFilterController(ProposalService proposalService,
-                                   ExcelImportWithSmartParserService excelImportWithSmartParserService, SearchNormalizer normalizer) {
+                                   ExcelImportWithSmartParserService excelImportWithSmartParserService, SearchNormalizer normalizer, CartStore cartStore) {
         this.proposalService = proposalService;
         this.excelImportWithSmartParserService = excelImportWithSmartParserService;
         this.normalizer = normalizer;
+        this.cartStore = cartStore;
     }
 
     @GetMapping("/")
@@ -952,76 +955,262 @@ public class ProductFilterController {
 
     @GetMapping("/cart/excel")
     public void downloadCartExcel(HttpServletResponse response, HttpSession session) throws IOException {
-        Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
-        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
-        if (cart == null || cart.isEmpty()) { response.sendRedirect("/cart"); return; }
+
+        Map<Integer, Integer> cart = cartStore.getQuantities();
+
+        if (cart == null || cart.isEmpty()) {
+            cart = (Map<Integer, Integer>) session.getAttribute("cart");
+        }
+
+        if (cart == null || cart.isEmpty()) {
+            response.sendRedirect("/cart");
+            return;
+        }
+
+        Map<Integer, Double> coefficientMap =
+                (Map<Integer, Double>) session.getAttribute("coefficientMap");
         if (coefficientMap == null) coefficientMap = new HashMap<>();
 
         List<Product> products = productRepo.findAllById(cart.keySet());
+        Map<Integer, Product> byId = products.stream()
+                .collect(Collectors.toMap(Product::getProductId, p -> p));
 
-        String projectName = Optional.ofNullable((String) session.getAttribute("projectName")).orElse("Проект");
-        String user = FileNames.currentUser();
-        String fname = FileNames.smeta(projectName, user);
+        Map<Long, String> sections =
+                (Map<Long, String>) session.getAttribute("sections");
+        Map<Long, Long> parents =
+                (Map<Long, Long>) session.getAttribute("sectionParent");
+        Map<Integer, Map<Long,Integer>> splits =
+                (Map<Integer, Map<Long,Integer>>) session.getAttribute("productSectionQty");
+
+        Map<Integer, Long> productSection =
+                (Map<Integer, Long>) session.getAttribute("productSection");
+
+        if (sections == null) sections = new LinkedHashMap<>();
+        if (parents == null) parents = new HashMap<>();
+        if (splits == null) splits = new HashMap<>();
+        if (productSection == null) productSection = new HashMap<>();
+
+        sections.putIfAbsent(1L, "Общий");
+        parents.putIfAbsent(1L, null);
+
+        String fname = "estimate.xlsx";
 
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        response.setHeader("Content-Disposition", rfc5987ContentDisposition(fname));
+        response.setHeader("Content-Disposition",
+                "attachment; filename=\"" + fname + "\"");
 
-        try (Workbook workbook = new XSSFWorkbook(); OutputStream out = response.getOutputStream()) {
-            Sheet sheet = workbook.createSheet("Смета");
-            DataFormat format = workbook.createDataFormat();
-            CellStyle style = workbook.createCellStyle();
-            style.setDataFormat(format.getFormat("# ##0.0"));
+        try (Workbook wb = new XSSFWorkbook();
+             OutputStream out = response.getOutputStream()) {
 
-            Row header = sheet.createRow(0);
-            String[] cols = {"№", "Наименование", "Артикул", "Бренд", "Кол-во",
-                    "Базовая цена", "Сумма базовая", "Коэф.", "Цена", "Сумма", "Маржа"};
-            for (int i = 0; i < cols.length; i++) header.createCell(i).setCellValue(cols[i]);
+            Sheet sh = wb.createSheet("Estimate");
 
-            int rowIdx = 1;
-            int index = 1;
-            double totalBase = 0.0;
-            double totalFinal = 0.0;
-            int totalQty = 0;
+            Row header = sh.createRow(0);
+            String[] cols = {
+                    "TYPE",
+                    "SECTION_ID",
+                    "PARENT_SECTION_ID",
+                    "SECTION_NAME",
+                    "PRODUCT_ID",
+                    "NAME",
+                    "ARTICLE",
+                    "BRAND",
+                    "QTY",
+                    "COEFF",
+                    "PRICE",
+                    "SUM"
+            };
 
-            for (Product product : products) {
-                int qty = cart.getOrDefault(product.getProductId(), 1);
-                double basePrice = product.getPrice() != null ? product.getPrice().doubleValue() : 0.0;
-                double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
-                double baseSum = basePrice * qty;
-                double unitPrice = basePrice * coeff;
-                double finalSum = unitPrice * qty;
-                double margin = finalSum - baseSum;
+            for (int i = 0; i < cols.length; i++)
+                header.createCell(i).setCellValue(cols[i]);
 
-                Row row = sheet.createRow(rowIdx++);
-                int col = 0;
-                row.createCell(col++).setCellValue(index++);
-                row.createCell(col++).setCellValue(product.getName());
-                row.createCell(col++).setCellValue(product.getArticleCode());
-                row.createCell(col++).setCellValue(product.getBrand().getBrandName());
-                row.createCell(col++).setCellValue(qty);
+            int r = 1;
+            double grandTotal = 0.0;
 
-                Cell basePriceCell = row.createCell(col++); basePriceCell.setCellValue(basePrice); basePriceCell.setCellStyle(style);
-                Cell baseSumCell   = row.createCell(col++); baseSumCell.setCellValue(baseSum);     baseSumCell.setCellStyle(style);
-                Cell coeffCell     = row.createCell(col++); coeffCell.setCellValue(coeff);         coeffCell.setCellStyle(style);
-                Cell unitPriceCell = row.createCell(col++); unitPriceCell.setCellValue(unitPrice); unitPriceCell.setCellStyle(style);
-                Cell finalSumCell  = row.createCell(col++); finalSumCell.setCellValue(finalSum);   finalSumCell.setCellStyle(style);
-                Cell marginCell    = row.createCell(col++); marginCell.setCellValue(margin);       marginCell.setCellStyle(style);
+            for (Long sid : sections.keySet()) {
 
-                totalBase += baseSum;
-                totalFinal += finalSum;
-                totalQty += qty;
+                Row sec = sh.createRow(r++);
+                sec.createCell(0).setCellValue("SECTION");
+                sec.createCell(1).setCellValue(sid);
+                sec.createCell(2).setCellValue(parents.get(sid) != null ? parents.get(sid) : 0);
+                sec.createCell(3).setCellValue(sections.get(sid));
+
+                double sectionSum = 0;
+
+                for (Integer pid : cart.keySet()) {
+
+                    Product p = byId.get(pid);
+                    if (p == null) continue;
+
+                    int totalQty = cart.getOrDefault(pid, 0);
+                    if (totalQty <= 0) continue;
+
+                    Map<Long,Integer> map = splits.get(pid);
+                    int qty = 0;
+
+                    // 1️⃣ есть разбиение — используем его
+                    if (map != null && map.containsKey(sid)) {
+                        qty = map.get(sid);
+                    }
+                    else {
+                        // 2️⃣ если нет разбиения — берём папку назначения
+                        Long assigned = productSection.get(pid);
+
+                        if (assigned == null) assigned = 1L; // fallback Общий
+
+                        if (assigned.equals(sid)) {
+                            qty = totalQty;
+                        }
+                    }
+
+                    if (qty <= 0) continue;
+
+                    Map<Integer, Double> priceOverride =
+                            (Map<Integer, Double>) session.getAttribute("priceOverrideMap");
+
+                    double base =
+                            (priceOverride != null && priceOverride.containsKey(p.getProductId()))
+                                    ? priceOverride.get(p.getProductId())
+                                    : (p.getPrice() != null ? p.getPrice().doubleValue() : 0.0);
+
+                    double k = coefficientMap.getOrDefault(pid, 1.0);
+                    double sum = qty * base * k;
+
+                    Row row = sh.createRow(r++);
+                    int c = 0;
+
+                    row.createCell(c++).setCellValue("ITEM");
+                    row.createCell(c++).setCellValue(sid);
+                    row.createCell(c++).setCellValue(parents.get(sid) != null ? parents.get(sid) : 0);
+                    row.createCell(c++).setCellValue(sections.get(sid));
+
+                    row.createCell(c++).setCellValue(pid);
+                    row.createCell(c++).setCellValue(p.getName());
+                    row.createCell(c++).setCellValue(p.getArticleCode() != null ? p.getArticleCode() : "");
+                    row.createCell(c++).setCellValue(p.getBrand() != null ? p.getBrand().getBrandName() : "");
+                    row.createCell(c++).setCellValue(qty);
+                    row.createCell(c++).setCellValue(k);
+                    row.createCell(c++).setCellValue(base);
+                    row.createCell(c++).setCellValue(sum);
+
+                    sectionSum += sum;
+                }
+
+                Row totalRow = sh.createRow(r++);
+                totalRow.createCell(3).setCellValue("SECTION TOTAL");
+                totalRow.createCell(11).setCellValue(sectionSum);
+
+                grandTotal += sectionSum;
             }
 
-            Row totalRow = sheet.createRow(rowIdx);
-            totalRow.createCell(3).setCellValue("Итого:");
-            totalRow.createCell(4).setCellValue(totalQty);
-            totalRow.createCell(6).setCellValue(totalBase);
-            totalRow.createCell(9).setCellValue(totalFinal);
-            totalRow.createCell(10).setCellValue(totalFinal - totalBase);
+            Row total = sh.createRow(r++);
+            total.createCell(3).setCellValue("PROJECT TOTAL");
+            total.createCell(11).setCellValue(grandTotal);
 
-            workbook.write(out);
+            wb.write(out);
         }
     }
+
+    @PostMapping("/cart/upload-structured-estimate")
+    public String uploadStructuredEstimate(@RequestParam("file") MultipartFile file,
+                                           HttpSession session,
+                                           RedirectAttributes ra) {
+
+        if (file.isEmpty()) {
+            ra.addFlashAttribute("error", "Файл пустой");
+            return "redirect:/cart";
+        }
+
+        Map<Integer, Integer> cart = new HashMap<>();
+        Map<Integer, Double> coeff = new HashMap<>();
+        Map<Integer, Double> priceOverride = new HashMap<>();
+
+        Map<Long,String> sections = new LinkedHashMap<>();
+        Map<Long,Long> parents = new HashMap<>();
+        Map<Integer,Map<Long,Integer>> splits = new HashMap<>();
+        Map<Integer,Long> productSection = new HashMap<>();
+
+        try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
+            Sheet sh = wb.getSheetAt(0);
+
+            for (int i = 1; i <= sh.getLastRowNum(); i++) {
+                Row row = sh.getRow(i);
+                if (row == null) continue;
+
+                Cell typeCell = row.getCell(0);
+                if (typeCell == null) continue;
+
+                if (typeCell.getCellType() == CellType.BLANK) continue;
+
+                String type = typeCell.getStringCellValue();
+                if (type == null || type.isBlank()) continue;
+
+                // ---- SECTION ----
+                if ("SECTION".equalsIgnoreCase(type)) {
+                    Cell idCell = row.getCell(1);
+                    Cell parentCell = row.getCell(2);
+                    Cell nameCell = row.getCell(3);
+
+                    if (idCell == null || nameCell == null) continue;
+
+                    long id = (long) idCell.getNumericCellValue();
+                    long parent = (parentCell != null ? (long) parentCell.getNumericCellValue() : 0);
+
+                    String name = nameCell.getStringCellValue();
+
+                    sections.put(id, name);
+                    parents.put(id, parent == 0 ? null : parent);
+                    continue;
+                }
+
+                // ---- ITEM ----
+                if ("ITEM".equalsIgnoreCase(type)) {
+
+                    Long sid = (long) row.getCell(1).getNumericCellValue();
+                    Integer pid = (int) row.getCell(4).getNumericCellValue();
+
+                    Integer qty = (int) row.getCell(8).getNumericCellValue();
+                    Double k = row.getCell(9).getNumericCellValue();
+                    Double price = row.getCell(10).getNumericCellValue();
+
+                    cart.merge(pid, qty, Integer::sum);
+                    coeff.put(pid, k);
+                    priceOverride.put(pid, price);
+
+                    splits.computeIfAbsent(pid, x -> new HashMap<>())
+                            .merge(sid, qty, Integer::sum);
+
+                    productSection.put(pid, sid);
+                }
+
+                // ---- IGNORE TOTAL ROWS ----
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            ra.addFlashAttribute("error", "Ошибка чтения Excel: " + e.getMessage());
+            return "redirect:/cart";
+        }
+
+        if (sections.isEmpty()) {
+            sections.put(1L, "Общий");
+            parents.put(1L, null);
+        }
+
+        session.setAttribute("cart", cart);
+        session.setAttribute("coefficientMap", coeff);
+        session.setAttribute("productSectionQty", splits);
+        session.setAttribute("productSection", productSection);
+        session.setAttribute("sections", sections);
+        session.setAttribute("sectionParent", parents);
+
+        // — фиксируем цены
+        session.setAttribute("priceOverrideMap", priceOverride);
+
+        ra.addFlashAttribute("message", "Смета успешно загружена");
+        return "redirect:/cart";
+    }
+
+
 
     @PostMapping("/cart/save-estimate")
     @Transactional
