@@ -4,10 +4,12 @@ import com.example.productfilter.dto.ProductFilterDTO;
 import com.example.productfilter.dto.ProposalHistoryView;
 import com.example.productfilter.model.*;
 import com.example.productfilter.repository.*;
+import com.example.productfilter.repository.spec.ProductSpecs;
 import com.example.productfilter.service.ExcelImportWithSmartParserService;
 import com.example.productfilter.service.ProductFilterService;
 import com.example.productfilter.service.ProposalService;
 import com.example.productfilter.util.FileNames;
+import com.example.productfilter.util.search.SearchNormalizer;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -23,6 +25,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -76,6 +79,7 @@ public class ProductFilterController {
     private ProposalSectionRepository proposalSectionRepo;
     @Autowired
     private ProductFilterService productFilterService;
+    private final SearchNormalizer normalizer;
 
     private final ProposalService proposalService;
     private final ExcelImportWithSmartParserService excelImportWithSmartParserService;
@@ -86,9 +90,10 @@ public class ProductFilterController {
 
 
     public ProductFilterController(ProposalService proposalService,
-                                   ExcelImportWithSmartParserService excelImportWithSmartParserService) {
+                                   ExcelImportWithSmartParserService excelImportWithSmartParserService, SearchNormalizer normalizer) {
         this.proposalService = proposalService;
         this.excelImportWithSmartParserService = excelImportWithSmartParserService;
+        this.normalizer = normalizer;
     }
 
     @GetMapping("/")
@@ -295,31 +300,48 @@ public class ProductFilterController {
                         param1 == null && param2 == null && param3 == null && param4 == null && param5 == null &&
                         keyword == null;
 
-        ProductFilterDTO f = new ProductFilterDTO(
+        // DTO ТОЛЬКО ДЛЯ СТРУКТУРЫ (без keyword!)
+        ProductFilterDTO idsCtx = new ProductFilterDTO(
                 brandId,
                 groupId,
                 subGroupId,
                 param1, param2, param3, param4, param5,
-                keyword
+                null   // <-- КЛЮЧЕВОЕ
         );
 
         Set<Integer> ids;
         if (noFilters) {
-            ids = productRepo.findAll().stream().map(Product::getProductId).collect(Collectors.toSet());
+            ids = productRepo.findAll()
+                    .stream()
+                    .map(Product::getProductId)
+                    .collect(Collectors.toSet());
         } else {
-            ids = productFilterService.resolveProductIds(f);
+            ids = productFilterService.resolveProductIds(idsCtx);
         }
 
-        List<Product> products = ids.isEmpty() ? List.of() : productRepo.findAllById(ids);
+        List<Product> products;
 
+        if (ids == null || ids.isEmpty()) {
+            products = new ArrayList<>();
+        } else {
+            products = new ArrayList<>(
+                    productRepo.findAll(
+                            Specification
+                                    .where(ProductSpecs.idIn(ids))
+                                    .and(ProductSpecs.keywordElastic(keyword, normalizer))
+                    )
+            );
+        }
+
+        // ===== SORT =====
         if (sort != null && !sort.isEmpty()) {
             String[] sorts = sort.split(",");
             for (String s : sorts) {
                 switch (s) {
-                    case "priceAsc" -> products.sort(
-                            Comparator.comparing(Product::getPrice, Comparator.nullsLast(BigDecimal::compareTo)));
-                    case "priceDesc" -> products.sort(
-                            Comparator.comparing(Product::getPrice, Comparator.nullsLast(BigDecimal::compareTo)).reversed());
+                    case "priceAsc" ->
+                            products.sort(Comparator.comparing(Product::getPrice, Comparator.nullsLast(BigDecimal::compareTo)));
+                    case "priceDesc" ->
+                            products.sort(Comparator.comparing(Product::getPrice, Comparator.nullsLast(BigDecimal::compareTo)).reversed());
                     case "nameAsc" ->
                             products.sort(Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER));
                     case "nameDesc" ->
@@ -332,7 +354,7 @@ public class ProductFilterController {
             }
         }
 
-        // ===== PAGINATION (без PageImpl) =====
+        // ===== PAGINATION =====
         int total = products.size();
         int totalPages = (int) Math.ceil(total / (double) pageSize);
         if (totalPages == 0) totalPages = 1;
@@ -344,7 +366,9 @@ public class ProductFilterController {
         int end = Math.min(start + pageSize, total);
 
         products.sort(Comparator.comparing(Product::getProductId));
-        List<Product> pageContent = (start < end) ? products.subList(start, end) : List.of();
+
+        List<Product> pageContent =
+                (start < end) ? new ArrayList<>(products.subList(start, end)) : List.of();
 
         model.addAttribute("products", pageContent);
         model.addAttribute("currentPage", page);
@@ -367,7 +391,10 @@ public class ProductFilterController {
             model.addAttribute("param4List", parameterRepo.findDistinctParam4());
             model.addAttribute("param5List", parameterRepo.findDistinctParam5());
         } else {
-            List<ProductParameters> params = ids.isEmpty() ? List.of() : parameterRepo.findByProduct_ProductIdIn(ids);
+            List<ProductParameters> params = ids.isEmpty()
+                    ? List.of()
+                    : parameterRepo.findByProduct_ProductIdIn(ids);
+
             model.addAttribute("param1List", params.stream().map(ProductParameters::getParam1).filter(Objects::nonNull).collect(toSet()));
             model.addAttribute("param2List", params.stream().map(ProductParameters::getParam2).filter(Objects::nonNull).collect(toSet()));
             model.addAttribute("param3List", params.stream().map(ProductParameters::getParam3).filter(Objects::nonNull).collect(toSet()));
@@ -386,6 +413,7 @@ public class ProductFilterController {
         selectedParams.put("param5", param5);
         selectedParams.put("keyword", keyword);
         selectedParams.put("sort", sort);
+
         model.addAttribute("filterParams", selectedParams);
 
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
@@ -400,8 +428,10 @@ public class ProductFilterController {
 
         List<ProposalHistoryView> historyList = proposalService.getAllProposals();
         model.addAttribute("proposalHistory", historyList);
+
         return "filter";
     }
+
 
 
     @PostMapping("/cart/add")

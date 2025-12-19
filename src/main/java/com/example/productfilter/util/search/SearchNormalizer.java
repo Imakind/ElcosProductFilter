@@ -35,6 +35,22 @@ public final class SearchNormalizer {
         return res;
     }
 
+
+    public String unifySeparators(String s) {
+        if (s == null) return null;
+
+        s = s.toLowerCase(Locale.ROOT);
+
+        // убрать точки, запятые, скобки
+        s = s.replaceAll("[.,()]", "");
+
+        // тире и много пробелов -> один пробел
+        s = s.replaceAll("[-_/]+", " ");
+        s = s.replaceAll("\\s+", " ").trim();
+
+        return s;
+    }
+
     /** Нормализация общего текста (имя товара/keyword) */
     public String normalizeText(String raw) {
         if (raw == null) return "";

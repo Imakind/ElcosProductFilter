@@ -24,83 +24,116 @@ public final class ProductSpecs {
     /** keyword ищет по имени, артикулу, строке даты (importPriceDate) */
     public static Specification<Product> keywordElastic(String rawKeyword, SearchNormalizer normalizer) {
         return (root, query, cb) -> {
-            if (rawKeyword == null || rawKeyword.isBlank()) return cb.conjunction();
+            if (rawKeyword == null || rawKeyword.isBlank())
+                return cb.conjunction();
 
             List<Predicate> ors = new ArrayList<>();
 
-            // ---- NAME (LIKE) + NAME без пробелов ----
-            List<String> variants = normalizer.variantsText(rawKeyword);
+            // =================
+            // 🔥 БАЗОВАЯ НОРМАЛИЗАЦИЯ
+            // =================
+            String kw = rawKeyword.toLowerCase();
 
-            Expression<String> nameSafe = cb.coalesce(root.get("name"), "");
-            Expression<String> nameLower = cb.lower(nameSafe);
+            // убираем . , () и прочий мусор
+            kw = kw.replaceAll("[.,()]", " ");
 
-            Expression<String> nameNoSpace = cb.function(
-                    "replace",
-                    String.class,
-                    nameLower,
-                    cb.literal(" "),
-                    cb.literal("")
-            );
+            // любые -_/ → пробел
+            kw = kw.replaceAll("[-_/]+", " ");
 
-            for (String v : variants) {
-                String like = "%" + escapeLike(v.toLowerCase()) + "%";
-                ors.add(cb.like(nameLower, like, '\\'));
+            // схлопываем пробелы
+            kw = kw.replaceAll("\\s+", " ").trim();
 
-                String vNoSpace = v.replace(" ", "");
-                if (!vNoSpace.isBlank()) {
-                    String likeNoSpace = "%" + escapeLike(vNoSpace.toLowerCase()) + "%";
-                    ors.add(cb.like(nameNoSpace, likeNoSpace, '\\'));
-                }
-            }
+            if (kw.isBlank())
+                return cb.conjunction();
 
-            // ---- ARTICLE (нормализованный contains) ----
+            // версия без пробелов
+            String kwJoined = kw.replace(" ", "");
+
+            Expression<String> name = cb.lower(cb.coalesce(root.get("name"), ""));
+            Expression<String> nameNoDots =
+                    cb.function("replace", String.class,
+                            cb.function("replace", String.class,
+                                    cb.function("replace", String.class,
+                                            name,
+                                            cb.literal("."), cb.literal("")
+                                    ),
+                                    cb.literal("-"), cb.literal(" ")
+                            ),
+                            cb.literal("_"), cb.literal(" ")
+                    );
+
+            Expression<String> nameJoined =
+                    cb.function("replace", String.class, nameNoDots,
+                            cb.literal(" "), cb.literal("")
+                    );
+
+
+            // ============================
+            // ✅ УРОВЕНЬ 1 — ЖЁСТКОЕ СОВПАДЕНИЕ
+            // ============================
+            ors.add(cb.equal(nameJoined, kwJoined));
+
+            // ============================
+            // ✅ УРОВЕНЬ 2 — НОРМАЛИЗОВАННОЕ СОВПАДЕНИЕ
+            // ============================
+            ors.add(cb.like(nameJoined, "%" + escapeLike(kwJoined) + "%", '\\'));
+
+            // ============================
+            // ✅ УРОВЕНЬ 3 — МЯГКОЕ (НО АККУРАТНОЕ)
+            // ============================
+            // поиск по словам (чтобы 2в != 32в)
+            ors.add(cb.like(cb.concat(" ", cb.concat(nameNoDots, " ")),
+                    "% " + escapeLike(kw) + " %", '\\'));
+
+            ors.add(cb.like(nameNoDots, kw + "%", '\\'));
+
+            // ============================
+            // ARTICLE
+            // ============================
             String art = normalizer.normalizeArticle(rawKeyword);
             if (!art.isBlank()) {
-                Expression<String> artSafe = cb.coalesce(root.get("articleCode"), "");
-                Expression<String> artLower = cb.lower(artSafe);
-
-                Expression<String> artNorm = cb.function(
-                        "replace",
-                        String.class,
-                        cb.function("replace", String.class, artLower, cb.literal("-"), cb.literal("")),
-                        cb.literal(" "),
-                        cb.literal("")
-                );
+                Expression<String> artSafe = cb.lower(cb.coalesce(root.get("articleCode"), ""));
+                Expression<String> artNorm =
+                        cb.function("replace", String.class,
+                                cb.function("replace", String.class,
+                                        artSafe,
+                                        cb.literal("-"), cb.literal("")
+                                ),
+                                cb.literal(" "), cb.literal("")
+                        );
 
                 ors.add(cb.like(artNorm, "%" + escapeLike(art) + "%", '\\'));
             }
 
-            // ---- DATE (если поле importPriceDate у тебя String) ----
-            String dateDigits = normalizer.normalizeDateDigits(rawKeyword);
-            if (dateDigits.length() >= 6) {
+            // ============================
+            // DATE DIGITS
+            // ============================
+            String digits = normalizer.normalizeDateDigits(rawKeyword);
+            if (digits.length() >= 6) {
                 Expression<String> dateField = cb.coalesce(root.get("importPriceDate"), "");
 
-                Expression<String> dateNorm = cb.function(
-                        "replace",
-                        String.class,
-                        cb.function(
-                                "replace",
-                                String.class,
-                                cb.function(
-                                        "replace",
-                                        String.class,
-                                        cb.function("replace", String.class, dateField, cb.literal("."), cb.literal("")),
-                                        cb.literal(":"),
-                                        cb.literal("")
+                Expression<String> dateNorm =
+                        cb.function("replace", String.class,
+                                cb.function("replace", String.class,
+                                        cb.function("replace", String.class,
+                                                cb.function("replace", String.class,
+                                                        dateField,
+                                                        cb.literal("."), cb.literal("")
+                                                ),
+                                                cb.literal(":"), cb.literal("")
+                                        ),
+                                        cb.literal("-"), cb.literal("")
                                 ),
-                                cb.literal("-"),
-                                cb.literal("")
-                        ),
-                        cb.literal(" "),
-                        cb.literal("")
-                );
+                                cb.literal(" "), cb.literal("")
+                        );
 
-                ors.add(cb.like(dateNorm, "%" + escapeLike(dateDigits) + "%", '\\'));
+                ors.add(cb.like(dateNorm, "%" + escapeLike(digits) + "%", '\\'));
             }
 
             return ors.isEmpty() ? cb.conjunction() : cb.or(ors.toArray(new Predicate[0]));
         };
     }
+
 
     private static String escapeLike(String s) {
         return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
