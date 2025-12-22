@@ -564,7 +564,12 @@ public class ProductFilterController {
 
         for (Product p : products) {
             int q = cart.getOrDefault(p.getProductId(), 0);
-            double base = p.getPrice() == null ? 0.0 : p.getPrice().doubleValue();
+            @SuppressWarnings("unchecked")
+            Map<?, Double> baseOverrideRaw = (Map<?, Double>) s.getAttribute("priceOverrideBaseMap");
+            Map<Integer, Double> baseOverride = normalizeMapDouble(baseOverrideRaw);
+
+
+            double base = resolveBasePrice(p, p.getProductId(), baseOverride);
             double k = coeff.getOrDefault(p.getProductId(), 1.0);
             double unit = base * k;
             double line = unit * q;
@@ -585,6 +590,12 @@ public class ProductFilterController {
         );
     }
 
+    // =========================
+// /cart (FIXED)
+// =========================
+    // ВСТАВЬ ЭТИ МЕТОДЫ В ТВОЙ СУЩЕСТВУЮЩИЙ КОНТРОЛЛЕР (где уже есть productRepo/parameterRepo/...)
+// НИЧЕГО НЕ ВЫНОСИМ В CartController. Это просто готовые методы + хелперы.
+
     @GetMapping("/cart")
     public String viewCart(Model model, HttpSession session, HttpServletResponse resp) {
         resp.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
@@ -600,24 +611,8 @@ public class ProductFilterController {
         if (cartRaw == null) cartRaw = new HashMap<>();
         if (coeffRaw == null) coeffRaw = new HashMap<>();
 
-        // Нормализуем ключи к Integer (ВАЖНО!)
-        Map<Integer, Integer> cart = new HashMap<>();
-        for (Map.Entry<?, Integer> e : cartRaw.entrySet()) {
-            Object k = e.getKey();
-            Integer id = (k instanceof Number n)
-                    ? n.intValue()
-                    : Integer.valueOf(k.toString());
-            cart.put(id, e.getValue());
-        }
-
-        Map<Integer, Double> coefficientMap = new HashMap<>();
-        for (Map.Entry<?, Double> e : coeffRaw.entrySet()) {
-            Object k = e.getKey();
-            Integer id = (k instanceof Number n)
-                    ? n.intValue()
-                    : Integer.valueOf(k.toString());
-            coefficientMap.put(id, e.getValue());
-        }
+        Map<Integer, Integer> cart = normalizeMapInt(cartRaw);
+        Map<Integer, Double> coefficientMap = normalizeMapDouble(coeffRaw);
 
         session.setAttribute("cart", cart);
         session.setAttribute("coefficientMap", coefficientMap);
@@ -626,91 +621,102 @@ public class ProductFilterController {
                 ? productRepo.findAllById(cart.keySet())
                 : List.of();
 
-        Map<Integer, Double> unitPriceMap = new HashMap<>();
+        // ---- БАЗОВЫЙ override ТОЛЬКО тут, отдельным ключом ----
+        // Новый источник базы: priceOverrideBaseMap
+        // Миграция: если раньше финал случайно писалcя в priceOverrideMap / proposalPriceOverrideMap — починим
+        Map<Integer, Double> priceOverrideBase = loadAndSanitizeBaseOverride(session, products, coefficientMap);
+        session.setAttribute("priceOverrideBaseMap", priceOverrideBase);
+
+        // ---- ВЫЧИСЛЯЕМЫЕ карты ----
+        Map<Integer, Double> baseUnitPriceMap = new HashMap<>(); // base
+        Map<Integer, Double> unitPriceMap = new HashMap<>();     // base*coeff
+        Map<Integer, Double> lineSumMap = new HashMap<>();       // unit*qty
+
+        double totalSum = 0.0;
+
         for (Product p : products) {
-            unitPriceMap.put(p.getProductId(),
-                    p.getPrice() != null ? p.getPrice().doubleValue() : 0.0);
+            Integer pid = p.getProductId();
+            int qty = cart.getOrDefault(pid, 1);
+
+            double base = resolveBasePrice(p, pid, priceOverrideBase);
+            double coeff = coefficientMap.getOrDefault(pid, 1.0);
+
+            double finalUnit = base * coeff;
+            double lineSum = finalUnit * qty;
+
+            baseUnitPriceMap.put(pid, base);
+            unitPriceMap.put(pid, finalUnit);
+            lineSumMap.put(pid, lineSum);
+
+            totalSum += lineSum;
         }
-        model.addAttribute("unitPriceMap", unitPriceMap);
 
-        Set<Integer> pids = products.stream()
-                .map(Product::getProductId)
-                .collect(Collectors.toSet());
+        session.setAttribute("baseUnitPriceMap", baseUnitPriceMap);
+        session.setAttribute("unitPriceMap", unitPriceMap);
+        session.setAttribute("lineSumMap", lineSumMap);
 
-        List<ProductParameters> parameters =
-                parameterRepo.findByProduct_ProductIdIn(pids);
+        Set<Integer> pids = products.stream().map(Product::getProductId).collect(Collectors.toSet());
 
-        // было Map<String, ProductParameters>
+        List<ProductParameters> parameters = pids.isEmpty()
+                ? List.of()
+                : parameterRepo.findByProduct_ProductIdIn(pids);
+
         Map<Integer, ProductParameters> paramsByProduct = new HashMap<>();
         for (ProductParameters pp : parameters) {
             if (pp.getProduct() != null && pp.getProduct().getProductId() != null) {
-                Integer pid = pp.getProduct().getProductId();
-                paramsByProduct.put(pid, pp);
+                paramsByProduct.put(pp.getProduct().getProductId(), pp);
             }
         }
-
         model.addAttribute("paramsByProduct", paramsByProduct);
 
+        Map<Integer, List<Category>> productIdToCategories = new HashMap<>();
+        if (!pids.isEmpty()) {
+            List<ProductCategories> links = productCategoriesRepo.findByProductIdIn(pids);
 
+            Set<Integer> categoryIds = links.stream()
+                    .map(ProductCategories::getCategoryId)
+                    .collect(Collectors.toSet());
 
+            List<Category> allCategories = categoryRepo.findAllById(categoryIds);
+
+            Map<Integer, Category> categoryMap = allCategories.stream()
+                    .collect(Collectors.toMap(Category::getCategoryId, c -> c));
+
+            for (ProductCategories link : links) {
+                Integer productId = link.getProductId();
+                Integer categoryId = link.getCategoryId();
+                Category category = categoryMap.get(categoryId);
+                if (category != null) {
+                    productIdToCategories.computeIfAbsent(productId, k -> new ArrayList<>()).add(category);
+                }
+            }
+        }
+        model.addAttribute("productCategoriesMap", productIdToCategories);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> lastFilters = (Map<String, Object>) session.getAttribute("lastFilters");
+        model.addAttribute("filterParams", lastFilters != null ? lastFilters : new HashMap<>());
+
+        int totalQuantity = cart.values().stream().mapToInt(Integer::intValue).sum();
 
         model.addAttribute("cartProducts", products);
         model.addAttribute("cartParams", parameters);
         model.addAttribute("quantities", cart);
         model.addAttribute("coefficientMap", coefficientMap);
 
-        List<ProductCategories> links =
-                productCategoriesRepo.findByProductIdIn(pids);
-
-        Set<Integer> categoryIds = links.stream()
-                .map(ProductCategories::getCategoryId)
-                .collect(Collectors.toSet());
-
-        List<Category> allCategories =
-                categoryRepo.findAllById(categoryIds);
-
-        Map<Integer, Category> categoryMap =
-                allCategories.stream()
-                        .collect(Collectors.toMap(Category::getCategoryId, c -> c));
-
-        Map<Integer, List<Category>> productIdToCategories = new HashMap<>();
-        for (ProductCategories link : links) {
-            Integer productId = link.getProductId();
-            Integer categoryId = link.getCategoryId();
-            Category category = categoryMap.get(categoryId);
-            if (category != null) {
-                productIdToCategories
-                        .computeIfAbsent(productId, k -> new ArrayList<>())
-                        .add(category);
-            }
-        }
-        model.addAttribute("productCategoriesMap", productIdToCategories);
-
-        Map<String, Object> lastFilters =
-                (Map<String, Object>) session.getAttribute("lastFilters");
-        model.addAttribute("filterParams",
-                lastFilters != null ? lastFilters : new HashMap<>());
-
-        double totalSum = 0.0;
-        for (Product product : products) {
-            Integer pid = product.getProductId();
-            int qty = cart.getOrDefault(pid, 1);
-            double price = product.getPrice() != null ? product.getPrice().doubleValue() : 0.0;
-            double coeff = coefficientMap.getOrDefault(pid, 1.0);
-            totalSum += qty * price * coeff;
-        }
-
-        int totalQuantity = cart.values().stream().mapToInt(Integer::intValue).sum();
+        // В шаблоне:
+        // baseUnitPriceMap[pid] — базовая цена
+        // unitPriceMap[pid] — цена с коэффициентом
+        // lineSumMap[pid] — сумма строки
+        model.addAttribute("baseUnitPriceMap", baseUnitPriceMap);
+        model.addAttribute("unitPriceMap", unitPriceMap);
+        model.addAttribute("lineSumMap", lineSumMap);
 
         model.addAttribute("totalSum", totalSum);
         model.addAttribute("totalQuantity", totalQuantity);
 
-        List<ProposalHistoryView> history =
-                proposalRepo.findEstimateHistoryBySessionId(sessionId);
+        List<ProposalHistoryView> history = proposalRepo.findEstimateHistoryBySessionId(sessionId);
         model.addAttribute("proposalHistory", history);
-
-        log.info("Cart ids in session: {}", cart.keySet());
-        log.info("Products loaded for cart: {}", products.size());
 
         return "cart";
     }
@@ -720,11 +726,20 @@ public class ProductFilterController {
     public void updateCoefficient(@RequestParam("productId") Integer productId,
                                   @RequestParam("coefficient") Double coefficient,
                                   HttpSession session) {
-        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
-        if (coefficientMap == null) coefficientMap = new HashMap<>();
-        coefficientMap.put(productId, coefficient);
+
+        @SuppressWarnings("unchecked")
+        Map<?, Double> coeffRaw = (Map<?, Double>) session.getAttribute("coefficientMap");
+        Map<Integer, Double> coefficientMap = normalizeMapDouble(coeffRaw);
+
+        coefficientMap.put(productId, coefficient != null ? coefficient : 1.0);
         session.setAttribute("coefficientMap", coefficientMap);
+
+        // важно: вычисляемые карты НЕ должны жить как "источник правды"
+        session.removeAttribute("baseUnitPriceMap");
+        session.removeAttribute("unitPriceMap");
+        session.removeAttribute("lineSumMap");
     }
+
 
     @PostMapping("/cart/remove")
     @ResponseBody
@@ -739,7 +754,7 @@ public class ProductFilterController {
         } else {
             cart.remove(productId);
             ensureProductSection(session).remove(productId);
-            Map<Integer, Map<Long,Integer>> splits = ensureProductSectionQty(session);
+            Map<Integer, Map<Long, Integer>> splits = ensureProductSectionQty(session);
             splits.remove(productId);
         }
         session.setAttribute("cart", cart);
@@ -747,31 +762,43 @@ public class ProductFilterController {
 
     @PostMapping("/cart/confirm")
     public String confirmCart(HttpSession session, Model model) {
+        @SuppressWarnings("unchecked")
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
         if (cart == null || cart.isEmpty()) return "redirect:/cart";
 
         List<Product> products = productRepo.findAllById(cart.keySet());
-        Map<Integer, Double> coefficientMap = (Map<Integer, Double>) session.getAttribute("coefficientMap");
-        if (coefficientMap == null) coefficientMap = new HashMap<>();
+
+        @SuppressWarnings("unchecked")
+        Map<?, Double> coeffRaw = (Map<?, Double>) session.getAttribute("coefficientMap");
+        Map<Integer, Double> coefficientMap = normalizeMapDouble(coeffRaw);
+
+        // БАЗОВЫЙ override берём ТОЛЬКО из priceOverrideBaseMap
+        @SuppressWarnings("unchecked")
+        Map<?, Double> baseOverrideRaw = (Map<?, Double>) session.getAttribute("priceOverrideBaseMap");
+        Map<Integer, Double> priceOverrideBase = normalizeMapDouble(baseOverrideRaw);
 
         Map<Integer, Double> finalPrices = new HashMap<>();
         Map<Integer, Double> totalSums = new HashMap<>();
         double totalSum = 0.0;
 
         for (Product product : products) {
-            int qty = cart.getOrDefault(product.getProductId(), 1);
-            double basePrice = product.getPrice() != null ? product.getPrice().doubleValue() : 0.0;
-            double coeff = coefficientMap.getOrDefault(product.getProductId(), 1.0);
-            double finalPrice = basePrice * coeff;
+            Integer pid = product.getProductId();
+            int qty = cart.getOrDefault(pid, 1);
+
+            double base = resolveBasePrice(product, pid, priceOverrideBase);
+            double coeff = coefficientMap.getOrDefault(pid, 1.0);
+
+            double finalPrice = base * coeff;
             double total = finalPrice * qty;
 
-            finalPrices.put(product.getProductId(), finalPrice);
-            totalSums.put(product.getProductId(), total);
+            finalPrices.put(pid, finalPrice);
+            totalSums.put(pid, total);
             totalSum += total;
         }
 
         List<ProductParameters> parameters = parameterRepo.findByProduct_ProductIdIn(cart.keySet());
         Map<Integer, ProductParameters> paramMap = parameters.stream()
+                .filter(p -> p.getProduct() != null && p.getProduct().getProductId() != null)
                 .collect(Collectors.toMap(p -> p.getProduct().getProductId(), Function.identity()));
 
         model.addAttribute("products", products);
@@ -783,16 +810,186 @@ public class ProductFilterController {
         model.addAttribute("totalSum", totalSum);
         model.addAttribute("totalQuantity", cart.values().stream().mapToInt(i -> i).sum());
 
+        // В сессию для генераторов:
         session.setAttribute("proposalCart", new HashMap<>(cart));
         session.setAttribute("proposalCoefficients", new HashMap<>(coefficientMap));
+
+        // КЛЮЧЕВОЕ: сюда кладём БАЗУ, не finalPrices
+        session.setAttribute("proposalPriceOverrideMap", new HashMap<>(priceOverrideBase));
+
+        // при желании отдельно можно хранить finalPrices:
+        session.setAttribute("proposalFinalPrices", new HashMap<>(finalPrices));
+
         session.setAttribute("proposalProducts", products);
         session.setAttribute("proposalTotal", totalSum);
 
+        @SuppressWarnings("unchecked")
         Map<String, Object> lastFilters = (Map<String, Object>) session.getAttribute("lastFilters");
         model.addAttribute("filterParams", lastFilters != null ? lastFilters : new HashMap<>());
 
         return "proposal";
     }
+
+
+// =========================
+// HELPERS (добавь в тот же контроллер ниже методов)
+// =========================
+
+    // ===== HELPERS (добавь в этот же контроллер) =====
+// ===== HELPERS =====
+
+    private Map<Integer, Integer> normalizeMapInt(Object raw) {
+        Map<Integer, Integer> out = new HashMap<>();
+        if (!(raw instanceof Map<?, ?> map)) return out;
+
+        for (Map.Entry<?, ?> e : map.entrySet()) {
+            Integer key = toIntKey(e.getKey());
+            if (key == null) continue;
+
+            Object v = e.getValue();
+            Integer val;
+            if (v == null) val = 0;
+            else if (v instanceof Number n) val = n.intValue();
+            else val = Integer.valueOf(v.toString());
+
+            out.put(key, val);
+        }
+        return out;
+    }
+
+    private Map<Integer, Double> normalizeMapDouble(Object raw) {
+        Map<Integer, Double> out = new HashMap<>();
+        if (!(raw instanceof Map<?, ?> map)) return out;
+
+        for (Map.Entry<?, ?> e : map.entrySet()) {
+            Integer key = toIntKey(e.getKey());
+            if (key == null) continue;
+
+            Object v = e.getValue();
+            Double val;
+            if (v == null) val = null;
+            else if (v instanceof Number n) val = n.doubleValue();
+            else val = Double.valueOf(v.toString());
+
+            out.put(key, val);
+        }
+        return out;
+    }
+
+    private Integer toIntKey(Object k) {
+        if (k == null) return null;
+        if (k instanceof Integer i) return i;
+        if (k instanceof Number n) return n.intValue();
+        String s = k.toString().trim();
+        if (s.isEmpty()) return null;
+        return Integer.valueOf(s);
+    }
+
+    private double resolveBasePrice(Product p, Integer pid, Map<Integer, Double> priceOverrideBase) {
+        if (pid != null && priceOverrideBase != null && priceOverrideBase.containsKey(pid)) {
+            Double v = priceOverrideBase.get(pid);
+            return v != null ? v : 0.0;
+        }
+        return (p.getPrice() != null ? p.getPrice().doubleValue() : 0.0);
+    }
+
+    /**
+     * Берёт базовый override из:
+     * 1) priceOverrideBaseMap (новый правильный ключ)
+     * 2) priceOverrideMap (legacy)
+     * 3) proposalPriceOverrideMap (legacy)
+     *
+     * И санитизирует: если там лежит финал (base*coeff), вернёт base.
+     */
+    private Map<Integer, Double> loadAndSanitizeBaseOverride(HttpSession session,
+                                                             List<Product> products,
+                                                             Map<Integer, Double> coefficientMap) {
+
+        // 1) Берём КАНДИДАТ (сначала правильный ключ, потом legacy)
+        @SuppressWarnings("unchecked")
+        Map<?, Double> rawBase = (Map<?, Double>) session.getAttribute("priceOverrideBaseMap");
+        @SuppressWarnings("unchecked")
+        Map<?, Double> rawLegacy1 = (Map<?, Double>) session.getAttribute("priceOverrideMap");
+        @SuppressWarnings("unchecked")
+        Map<?, Double> rawLegacy2 = (Map<?, Double>) session.getAttribute("proposalPriceOverrideMap");
+
+        Map<Integer, Double> candidate = normalizeMapDouble(rawBase);
+        boolean fromLegacy = false;
+
+        if (candidate.isEmpty()) {
+            candidate = normalizeMapDouble(rawLegacy1);
+            fromLegacy = !candidate.isEmpty();
+        }
+        if (candidate.isEmpty()) {
+            candidate = normalizeMapDouble(rawLegacy2);
+            fromLegacy = !candidate.isEmpty();
+        }
+
+        if (candidate.isEmpty()) return new HashMap<>();
+
+        // 2) productPrice для сравнения
+        Map<Integer, Double> productPrice = new HashMap<>();
+        for (Product p : products) {
+            if (p.getProductId() == null) continue;
+            productPrice.put(
+                    p.getProductId(),
+                    p.getPrice() != null ? p.getPrice().doubleValue() : 0.0
+            );
+        }
+
+        // 3) Санитизация: если значение выглядит как (productPrice * coeff) — делим на coeff
+        Map<Integer, Double> sanitized = new HashMap<>();
+        boolean changed = false;
+
+        for (Map.Entry<Integer, Double> e : candidate.entrySet()) {
+            Integer pid = e.getKey();
+            Double v = e.getValue();
+
+            if (pid == null || v == null) {
+                sanitized.put(pid, v);
+                continue;
+            }
+
+            double coeff = coefficientMap.getOrDefault(pid, 1.0);
+            double pBase = productPrice.getOrDefault(pid, 0.0);
+
+            double out = v;
+
+            // эвристика: "похоже на уже-умноженную цену"
+            if (coeff != 0.0
+                    && Math.abs(coeff - 1.0) > 1e-9
+                    && pBase > 0.0
+                    && approx(v, pBase * coeff, 0.005)) {
+                out = v / coeff;
+            }
+
+            sanitized.put(pid, out);
+            if (Double.compare(out, v) != 0) changed = true;
+        }
+
+        // 4) Зафиксировать в одном месте
+        session.setAttribute("priceOverrideBaseMap", sanitized);
+
+        // legacy-ключи лучше убрать, чтобы не мешали
+        if (fromLegacy || changed) {
+            session.removeAttribute("priceOverrideMap");
+            session.removeAttribute("proposalPriceOverrideMap");
+        }
+
+        return sanitized;
+    }
+
+
+    private boolean approx(double a, double b, double relTol) {
+        double diff = Math.abs(a - b);
+        double scale = Math.max(1.0, Math.max(Math.abs(a), Math.abs(b)));
+        return diff / scale <= relTol;
+    }
+
+
+
+
+
 
     // ===== УДАЛЁН эндпойнт /proposal/pdf и все PDF-зависимости =====
 
@@ -1064,13 +1261,15 @@ public class ProductFilterController {
 
                     if (qty <= 0) continue;
 
-                    Map<Integer, Double> priceOverride =
-                            (Map<Integer, Double>) session.getAttribute("priceOverrideMap");
+                    @SuppressWarnings("unchecked")
+                    Map<Integer, Double> baseOverride =
+                            (Map<Integer, Double>) session.getAttribute("priceOverrideBaseMap");
 
                     double base =
-                            (priceOverride != null && priceOverride.containsKey(p.getProductId()))
-                                    ? priceOverride.get(p.getProductId())
+                            (baseOverride != null && baseOverride.containsKey(p.getProductId()))
+                                    ? Optional.ofNullable(baseOverride.get(p.getProductId())).orElse(0.0)
                                     : (p.getPrice() != null ? p.getPrice().doubleValue() : 0.0);
+
 
                     double k = coefficientMap.getOrDefault(pid, 1.0);
                     double sum = qty * base * k;
@@ -1122,7 +1321,7 @@ public class ProductFilterController {
 
         Map<Integer, Integer> cart = new HashMap<>();
         Map<Integer, Double> coeff = new HashMap<>();
-        Map<Integer, Double> priceOverride = new HashMap<>();
+        Map<Integer, Double> priceOverrideBase = new HashMap<>();
 
         Map<Long,String> sections = new LinkedHashMap<>();
         Map<Long,Long> parents = new HashMap<>();
@@ -1174,7 +1373,7 @@ public class ProductFilterController {
 
                     cart.merge(pid, qty, Integer::sum);
                     coeff.put(pid, k);
-                    priceOverride.put(pid, price);
+                    priceOverrideBase.put(pid, price);
 
                     splits.computeIfAbsent(pid, x -> new HashMap<>())
                             .merge(sid, qty, Integer::sum);
@@ -1204,7 +1403,9 @@ public class ProductFilterController {
         session.setAttribute("sectionParent", parents);
 
         // — фиксируем цены
-        session.setAttribute("priceOverrideMap", priceOverride);
+        session.setAttribute("priceOverrideBaseMap", priceOverrideBase);
+
+        session.removeAttribute("priceOverrideMap");
 
         ra.addFlashAttribute("message", "Смета успешно загружена");
         return "redirect:/cart";

@@ -338,6 +338,133 @@
             color:#fff !important;
         }
 
+        .calc-section{
+            margin-top:8px;
+            margin-bottom:8px;
+            padding:8px 10px;
+            border-radius:10px;
+            background:#181818;
+            border:1px solid #232323;
+        }
+        .calc-section-title{
+            font-size:13px;
+            font-weight:600;
+            margin-bottom:6px;
+            opacity:.9;
+        }
+        .calc-grid{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:6px 12px;
+        }
+        .calc-field-row{
+            display:flex;
+            flex-direction:column;
+            font-size:12px;
+        }
+        .calc-label{
+            margin-bottom:2px;
+            opacity:.9;
+        }
+        .calc-field-row input{
+            width:100%;
+            box-sizing:border-box;
+            padding:4px 6px;
+            font-size:13px;
+        }
+        .calc-results{
+            margin-top:4px;
+            font-size:12px;
+        }
+        .calc-results-row{
+            display:flex;
+            justify-content:space-between;
+            gap:8px;
+            margin-bottom:2px;
+        }
+        .calc-results-row span:last-child{
+            font-variant-numeric:tabular-nums;
+        }
+        .calc-mat-list{
+            max-height:220px;
+            overflow:auto;
+            padding-right:4px;
+        }
+        .calc-mat-row{
+            border-top:1px solid #222;
+            padding-top:6px;
+            margin-top:6px;
+        }
+        .calc-mat-name{
+            font-size:12px;
+            margin-bottom:4px;
+        }
+        .calc-mat-fields{
+            display:flex;
+            flex-direction:column;
+            gap:4px;
+            font-size:12px;
+        }
+        .calc-field-inline{
+            display:flex;
+            align-items:center;
+            gap:4px;
+        }
+        .calc-mat-input{
+            flex:0 0 90px;
+        }
+        .calc-mat-sum{
+            font-size:12px;
+            opacity:.9;
+        }
+        .calc-field-label{
+            opacity:.8;
+        }
+        .calc-mat-qty-value,
+        .calc-mat-sum-value{
+            font-variant-numeric:tabular-nums;
+        }
+        @media (max-width: 480px){
+            .calc-grid{
+                grid-template-columns:1fr;
+            }
+        }
+        .calc-panel-floating{
+            resize: both;
+            overflow: auto;
+        }
+
+        .calc-mat-list{
+            max-height: 400px;
+            overflow: auto;
+        }
+        /* Стиль как у остальных инпутов калькулятора */
+        .calc-table input,
+        .calc-grid input {
+            background:#1a1a1a;
+            border:1px solid #2a2a2a;
+            border-radius:8px;
+            padding:4px 6px;
+            color:#eaeaea;
+            width:100%;
+            box-sizing:border-box;
+            height:30px;
+        }
+
+        /* hover */
+        .calc-table input:hover,
+        .calc-grid input:hover {
+            border-color:#3a3a3a;
+        }
+
+        /* focus */
+        .calc-table input:focus,
+        .calc-grid input:focus {
+            outline:none;
+            border-color:#4c6fff;
+            background:#1f1f1f;
+        }
+
     </style>
 </head>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
@@ -488,16 +615,18 @@
                             th:with="
         pidRaw=${p.productId},
         pidS=${#strings.concat('', pidRaw)},
-        up0=${unitPriceMap != null and unitPriceMap.containsKey(pidRaw) ? unitPriceMap[pidRaw] : null},
-        up1=${up0 != null ? up0 : (unitPriceMap != null and unitPriceMap.containsKey(pidS) ? unitPriceMap[pidS] : null)},
-        up2=${up1 != null ? up1 : (unitPriceMap != null and unitPriceMap.containsKey(T(java.lang.Long).valueOf(pidS)) ? unitPriceMap[T(java.lang.Long).valueOf(pidS)] : null)},
-        up3=${up2 != null ? up2 : (unitPriceMap != null and unitPriceMap.containsKey(T(java.lang.Integer).valueOf(pidS)) ? unitPriceMap[T(java.lang.Integer).valueOf(pidS)] : null)},
-        up=${up3 != null ? up3 : 0}
+
+        bp0=${baseUnitPriceMap != null and baseUnitPriceMap.containsKey(pidRaw) ? baseUnitPriceMap[pidRaw] : null},
+        bp1=${bp0 != null ? bp0 : (baseUnitPriceMap != null and baseUnitPriceMap.containsKey(pidS) ? baseUnitPriceMap[pidS] : null)},
+        bp2=${bp1 != null ? bp1 : (baseUnitPriceMap != null and baseUnitPriceMap.containsKey(T(java.lang.Long).valueOf(pidS)) ? baseUnitPriceMap[T(java.lang.Long).valueOf(pidS)] : null)},
+        bp3=${bp2 != null ? bp2 : (baseUnitPriceMap != null and baseUnitPriceMap.containsKey(T(java.lang.Integer).valueOf(pidS)) ? baseUnitPriceMap[T(java.lang.Integer).valueOf(pidS)] : null)},
+        bp=${bp3 != null ? bp3 : 0}
     "
-                            th:attr="data-unit-price=${up}"
-                            th:text="${#numbers.formatDecimal(up, 1, 2, 'COMMA')}">
+                            th:attr="data-base-price=${bp}, data-unit-price=${bp}"
+                            th:text="${#numbers.formatDecimal(bp, 1, 2, 'COMMA')}">
                             0,00
                         </td>
+
 
                         <td class="sum">0,00</td>
                     </tr>
@@ -514,110 +643,625 @@
 </button>
 
 <!-- Плавающая панель калькулятора -->
+<!-- Плавающая панель калькулятора -->
 <section id="calcFloatingPanel" class="panel calc-panel-floating">
+
     <div class="calc-header">
-        <span class="calc-header-title">Калькулятор себестоимости</span>
+        <span class="calc-header-title">Калькулятор пустого изделия ELCOS</span>
         <button id="calcCloseBtn" type="button" class="btn">✕</button>
     </div>
+
     <div class="hint" style="margin-bottom:6px;">
-        Формулы как в Excel: площадь металла, масса изделия и себестоимость. Перетаскивайте панель за заголовок.
+        Формулы 1:1 с «Пустое издел». Все расходники, металл, краска, упаковка, логистика.
     </div>
 
-    <table class="calc-table">
-        <tbody>
-        <tr class="section-row"><td colspan="2">Общие</td></tr>
-        <tr>
-            <td>Курс евро</td>
-            <td><input id="calcC2" class="calc-input" type="number" step="0.01" value="500"></td>
-        </tr>
+    <!-- ================= ОБЩИЕ ================= -->
+    <div class="calc-section">
+        <div class="calc-section-title">Общие параметры</div>
 
-        <tr class="section-row"><td colspan="2">Габариты (мм)</td></tr>
-        <tr>
-            <td>Высота (мм)</td>
-            <td><input id="calcC4" class="calc-input" type="number" step="1" value="1000"></td>
-        </tr>
-        <tr>
-            <td>Ширина (мм)</td>
-            <td><input id="calcC5" class="calc-input" type="number" step="1" value="1000"></td>
-        </tr>
-        <tr>
-            <td>Глубина (мм)</td>
-            <td><input id="calcC6" class="calc-input" type="number" step="1" value="500"></td>
-        </tr>
-        <tr>
-            <td>Толщина металла (мм)</td>
-            <td><input id="calcC7" class="calc-input" type="number" step="0.1" value="1"></td>
-        </tr>
+        <div class="calc-grid">
+            <div class="calc-field-row">
+                <label>Курс Euro (C7)</label>
+                <input id="calcC7" class="calc-input" type="number" step="0.01" value="621">
+            </div>
 
-        <tr class="section-row"><td colspan="2">Параметры (кол-во частей)</td></tr>
-        <tr>
-            <td>Передняя/задняя стенки (шт.)</td>
-            <td><input id="calcC9" class="calc-input" type="number" step="0.1" value="2"></td>
-        </tr>
-        <tr>
-            <td>Боковые стенки (шт.)</td>
-            <td><input id="calcC10" class="calc-input" type="number" step="0.1" value="2"></td>
-        </tr>
-        <tr>
-            <td>Верх/нижн. стенки (шт.)</td>
-            <td><input id="calcC11" class="calc-input" type="number" step="0.1" value="2"></td>
-        </tr>
-        <tr>
-            <td>Фальш-панель (шт.)</td>
-            <td><input id="calcC12" class="calc-input" type="number" step="0.1" value="1"></td>
-        </tr>
-        <tr>
-            <td>Внутренности (шт.)</td>
-            <td><input id="calcC13" class="calc-input" type="number" step="0.1" value="0.5"></td>
-        </tr>
+            <div class="calc-field-row">
+                <label>Коэффициент Елкоса (C8)</label>
+                <input id="calcC8" class="calc-input" type="number" step="0.01" value="1.6">
+            </div>
+        </div>
+    </div>
 
-        <tr class="section-row"><td colspan="2">Материалы</td></tr>
-        <tr>
-            <td>Расход краски (кг/кв.м)</td>
-            <td><input id="calcC15" class="calc-input" type="number" step="0.01" value="0.3"></td>
-        </tr>
-        <tr>
-            <td>Цена краски (тг/кг)</td>
-            <td><input id="calcC16" class="calc-input" type="number" step="1" value="2500"></td>
-        </tr>
-        <tr>
-            <td>Цена металла (тг/кг)</td>
-            <td><input id="calcC17" class="calc-input" type="number" step="1" value="475"></td>
-        </tr>
-        <tr>
-            <td>Коэффициент сложности</td>
-            <td><input id="calcC18" class="calc-input" type="number" step="0.01" value="1"></td>
-        </tr>
+    <!-- ================= РАЗМЕРЫ ================= -->
+    <div class="calc-section">
+        <div class="calc-section-title">Размеры шкафа</div>
 
-        <tr class="section-row"><td colspan="2">Результаты</td></tr>
-        <tr class="result-row">
-            <td>Площадь металла (кв.м.)</td>
-            <td class="calc-result"><strong id="calcC20">0,00</strong></td>
-        </tr>
-        <tr class="result-row">
-            <td>Масса изделия (кг)</td>
-            <td class="calc-result"><strong id="calcC21">0,00</strong></td>
-        </tr>
-        <tr class="result-row">
-            <td>Себестоимость (тг)</td>
-            <td class="calc-result"><strong id="calcC22">0</strong></td>
-        </tr>
-        <tr class="result-row">
-            <td>Себестоимость (евро)</td>
-            <td class="calc-result"><strong id="calcC23">0,00</strong></td>
-        </tr>
+        <div class="calc-grid">
+            <div class="calc-field-row">
+                <label>Высота, мм (B12)</label>
+                <input id="calcB12" class="calc-input" type="number" step="1" value="2100">
+            </div>
 
-        <!-- новое -->
-        <tr>
-            <td colspan="2" style="padding-top:8px;">
-                <button id="calcAddToCartBtn" type="button" class="btn btn-primary" style="width:100%;">
-                    Добавить в смету
-                </button>
-            </td>
-        </tr>
-        </tbody>
-    </table>
+            <div class="calc-field-row">
+                <label>Ширина, мм (C12)</label>
+                <input id="calcC12" class="calc-input" type="number" step="1" value="800">
+            </div>
+
+            <div class="calc-field-row">
+                <label>Глубина, мм (D12)</label>
+                <input id="calcD12" class="calc-input" type="number" step="1" value="400">
+            </div>
+
+            <div class="calc-field-row">
+                <label>Толщина панели, мм (E12)</label>
+                <input id="calcE12" class="calc-input" type="number" step="0.1" value="2">
+            </div>
+        </div>
+
+        <div class="calc-results">
+            <div class="calc-results-row">
+                <span>Объем, м³ (F12)</span>
+                <span id="calcF12">0</span>
+            </div>
+
+            <div class="calc-results-row">
+                <span>Площадь, м² (G12)</span>
+                <span id="calcG12">0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= РАСХОДНИКИ EXACT F15..F55 ================= -->
+    <div class="calc-section">
+        <div class="calc-section-title">Расходные материалы (полный список из Excel)</div>
+
+        <div class="calc-mat-list">
+
+            <!-- 15 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Уплотнительная резина полиуретановая наливная</div>
+                <input id="mat15_qty" type="number" step="0.01" value="5.8">
+                <input id="mat15_price" type="number" step="0.0001" value="0.34">
+                <span id="mat15_sum">0</span>
+            </div>
+
+            <!-- 16 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Шарнир стандартный  SR 408-1 DIL-1 :</div>
+                <input id="mat16_qty" type="number" step="0.01" value="0">
+                <input id="mat16_price" type="number" step="0.0001" value="0.82">
+                <span id="mat16_sum">0</span>
+            </div>
+
+            <!-- 17 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Шарнир стандартный  SR 408-2</div>
+                <input id="mat17_qty" type="number" step="0.01" value="4">
+                <input id="mat17_price" type="number" step="0.0001" value="1.45">
+                <span id="mat17_sum">0</span>
+            </div>
+
+            <!-- 18 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Замок распорный 002-5 + SR 303-2 +SR 302-1 + SR-303-1 SERMAK  </div>
+                <input id="mat18_qty" type="number" step="0.01" value="1">
+                <input id="mat18_price" type="number" step="0.0001" value="12.6">
+                <span id="mat18_sum">0</span>
+            </div>
+
+            <!-- 19 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Замок  SR 299-1</div>
+                <input id="mat19_qty" type="number" step="0.01" value="0">
+                <input id="mat19_price" type="number" step="0.0001" value="1.75">
+                <span id="mat19_sum">0</span>
+            </div>
+
+            <!-- 20 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Замок Мастер ключ IP65: 201-1+201-TK 1 (замки с разными ключами)</div>
+                <input id="mat20_qty" type="number" step="0.01" value="0">
+                <input id="mat20_price" type="number" step="0.0001" value="1.95">
+                <span id="mat20_sum">0</span>
+            </div>
+
+            <!-- 21 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Кармашек ELCOS</div>
+                <input id="mat21_qty" type="number" step="0.01" value="0">
+                <input id="mat21_price" type="number" step="0.0001" value="0.96">
+                <span id="mat21_sum">0</span>
+            </div>
+
+            <!-- 22 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Наклейка  знак "молния":</div>
+                <input id="mat22_qty" type="number" step="0.01" value="1">
+                <input id="mat22_price" type="number" step="0.0001" value="0.3">
+                <span id="mat22_sum">0</span>
+            </div>
+
+            <!-- 23 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Наклейка  знак "земля":</div>
+                <input id="mat23_qty" type="number" step="0.01" value="1">
+                <input id="mat23_price" type="number" step="0.0001" value="0.3">
+                <span id="mat23_sum">0</span>
+            </div>
+
+            <!-- 24 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Провод заземление ПВ-3-20 см 6мм2:</div>
+                <input id="mat24_qty" type="number" step="0.01" value="2">
+                <input id="mat24_price" type="number" step="0.0001" value="0.25">
+                <span id="mat24_sum">0</span>
+            </div>
+
+            <!-- 25 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Наконечник кольцевой 6*6 мм2</div>
+                <input id="mat25_qty" type="number" step="0.01" value="4">
+                <input id="mat25_price" type="number" step="0.0001" value="0.05">
+                <span id="mat25_sum">0</span>
+            </div>
+
+            <!-- 26 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">М6 гайка:</div>
+                <input id="mat26_qty" type="number" step="0.01" value="20">
+                <input id="mat26_price" type="number" step="0.0001" value="0.03">
+                <span id="mat26_sum">0</span>
+            </div>
+
+            <!-- 27 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">М6 болт с потайной головкой</div>
+                <input id="mat27_qty" type="number" step="0.01" value="20">
+                <input id="mat27_price" type="number" step="0.0001" value="0.15">
+                <span id="mat27_sum">0</span>
+            </div>
+
+            <!-- 28 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">М6*15 мм чакма вида </div>
+                <input id="mat28_qty" type="number" step="0.01" value="3">
+                <input id="mat28_price" type="number" step="0.0001" value="0.8">
+                <span id="mat28_sum">0</span>
+            </div>
+
+            <!-- 29 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">М8 болт грибок</div>
+                <input id="mat29_qty" type="number" step="0.01" value="3">
+                <input id="mat29_price" type="number" step="0.0001" value="0.1">
+                <span id="mat29_sum">0</span>
+            </div>
+
+            <!-- 30 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">М8 гайка </div>
+                <input id="mat30_qty" type="number" step="0.01" value="3">
+                <input id="mat30_price" type="number" step="0.0001" value="0.02">
+                <span id="mat30_sum">0</span>
+            </div>
+
+            <!-- 31 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">М8*20мм шестигранный болт </div>
+                <input id="mat31_qty" type="number" step="0.01" value="3">
+                <input id="mat31_price" type="number" step="0.0001" value="0.13">
+                <span id="mat31_sum">0</span>
+            </div>
+
+            <!-- 32 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Утеплитель  Самокл. С Фольгой, толщиной 19мм</div>
+                <input id="mat32_qty" type="number" step="0.01" value="2">
+                <input id="mat32_price" type="number" step="0.0001" value="8">
+                <span id="mat32_sum">0</span>
+            </div>
+
+            <!-- 33 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">PG16 IEK</div>
+                <input id="mat33_qty" type="number" step="0.01" value="0">
+                <input id="mat33_price" type="number" step="0.0001" value="2">
+                <span id="mat33_sum">0</span>
+            </div>
+
+            <!-- 34 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Щетка SERMAK   730-V1 </div>
+                <input id="mat34_qty" type="number" step="0.01" value="1">
+                <input id="mat34_price" type="number" step="0.0001" value="18.9">
+                <span id="mat34_sum">0</span>
+            </div>
+
+            <!-- 35 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Окошко SR 501-2 </div>
+                <input id="mat35_qty" type="number" step="0.01" value="0">
+                <input id="mat35_price" type="number" step="0.0001" value="9.97">
+                <span id="mat35_sum">0</span>
+            </div>
+
+            <!-- 36 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник PG13,5 IP54 d отверс. (20мм.) d проводника 6-12мм EKF PROxima</div>
+                <input id="mat36_qty" type="number" step="0.01" value="0">
+                <input id="mat36_price" type="number" step="0.0001" value="0.1525">
+                <span id="mat36_sum">0</span>
+            </div>
+
+            <!-- 37 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник PG16 IP54 d отверс. (21мм.) d проводника 10-14мм EKF PROxima</div>
+                <input id="mat37_qty" type="number" step="0.01" value="0">
+                <input id="mat37_price" type="number" step="0.0001" value="0.185">
+                <span id="mat37_sum">0</span>
+            </div>
+
+            <!-- 38 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник PG19 IP54 d отверс. (24мм.) d проводника 12-15мм EKF PROxima</div>
+                <input id="mat38_qty" type="number" step="0.01" value="0">
+                <input id="mat38_price" type="number" step="0.0001" value="0.21">
+                <span id="mat38_sum">0</span>
+            </div>
+
+            <!-- 39 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник PG21 IP54 d отверс. (27мм.) d проводника 13-18мм EKF PROxima</div>
+                <input id="mat39_qty" type="number" step="0.01" value="0">
+                <input id="mat39_price" type="number" step="0.0001" value="0.25">
+                <span id="mat39_sum">0</span>
+            </div>
+
+            <!-- 40 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник PG25 IP54 d отверс. (30мм.) d проводника 16-21мм EKF PROxima</div>
+                <input id="mat40_qty" type="number" step="0.01" value="0">
+                <input id="mat40_price" type="number" step="0.0001" value="0.315">
+                <span id="mat40_sum">0</span>
+            </div>
+
+            <!-- 41 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник PG29 IP54 d отверс. (36мм.) d проводника 18-25мм EKF PROxima</div>
+                <input id="mat41_qty" type="number" step="0.01" value="0">
+                <input id="mat41_price" type="number" step="0.0001" value="0.5125">
+                <span id="mat41_sum">0</span>
+            </div>
+
+            <!-- 42 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник PG36 IP54 d отверс. (46мм.) d проводника 22-32мм EKF PROxima</div>
+                <input id="mat42_qty" type="number" step="0.01" value="0">
+                <input id="mat42_price" type="number" step="0.0001" value="0.905">
+                <span id="mat42_sum">0</span>
+            </div>
+
+            <!-- 43 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник PG42 IP54 d отверс. (53мм.) d проводника 32-38мм EKF PROxima</div>
+                <input id="mat43_qty" type="number" step="0.01" value="0">
+                <input id="mat43_price" type="number" step="0.0001" value="1.0525">
+                <span id="mat43_sum">0</span>
+            </div>
+
+            <!-- 44 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник PG48 IP54 d отверс. (59мм.) d проводника 37-44мм EKF PROxima</div>
+                <input id="mat44_qty" type="number" step="0.01" value="0">
+                <input id="mat44_price" type="number" step="0.0001" value="1.1375">
+                <span id="mat44_sum">0</span>
+            </div>
+
+            <!-- 45 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник MG12 (внутренний - Ø7,6-4,6)IP68</div>
+                <input id="mat45_qty" type="number" step="0.01" value="0">
+                <input id="mat45_price" type="number" step="0.0001" value="0.305">
+                <span id="mat45_sum">0</span>
+            </div>
+
+            <!-- 46 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник MG16 (внутренний - Ø10-6)    IP68</div>
+                <input id="mat46_qty" type="number" step="0.01" value="0">
+                <input id="mat46_price" type="number" step="0.0001" value="0.4325">
+                <span id="mat46_sum">0</span>
+            </div>
+
+            <!-- 47 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник MG20 (внутренний - Ø14-9)    IP68</div>
+                <input id="mat47_qty" type="number" step="0.01" value="0">
+                <input id="mat47_price" type="number" step="0.0001" value="0.595">
+                <span id="mat47_sum">0</span>
+            </div>
+
+            <!-- 48 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник MG25 (внутренний - Ø18-13) IP68</div>
+                <input id="mat48_qty" type="number" step="0.01" value="0">
+                <input id="mat48_price" type="number" step="0.0001" value="0.78">
+                <span id="mat48_sum">0</span>
+            </div>
+
+            <!-- 49 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник MG32 (внутренний - Ø25-18) IP68</div>
+                <input id="mat49_qty" type="number" step="0.01" value="0">
+                <input id="mat49_price" type="number" step="0.0001" value="1.355">
+                <span id="mat49_sum">0</span>
+            </div>
+
+            <!-- 50 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник MG40 (внутренний - Ø30-24) IP68</div>
+                <input id="mat50_qty" type="number" step="0.01" value="0">
+                <input id="mat50_price" type="number" step="0.0001" value="2.145">
+                <span id="mat50_sum">0</span>
+            </div>
+
+            <!-- 51 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник MG50 (внутренний - Ø39-30) IP68</div>
+                <input id="mat51_qty" type="number" step="0.01" value="0">
+                <input id="mat51_price" type="number" step="0.0001" value="2.835">
+                <span id="mat51_sum">0</span>
+            </div>
+
+            <!-- 52 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Сальник MG63 (внутренний - Ø49-39) IP68</div>
+                <input id="mat52_qty" type="number" step="0.01" value="0">
+                <input id="mat52_price" type="number" step="0.0001" value="4.1375">
+                <span id="mat52_sum">0</span>
+            </div>
+
+            <!-- 53 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Барашек для фальш панелей SR-506(25) </div>
+                <input id="mat53_qty" type="number" step="0.01" value="0">
+                <input id="mat53_price" type="number" step="0.0001" value="0.11097">
+                <span id="mat53_sum">0</span>
+            </div>
+
+            <!-- 54 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Щетка MESAN   340.20.011 -1м </div>
+                <input id="mat54_qty" type="number" step="0.01" value="0">
+                <input id="mat54_price" type="number" step="0.0001" value="14.6">
+                <span id="mat54_sum">0</span>
+            </div>
+
+            <!-- 55 -->
+            <div class="calc-mat-row">
+                <div class="calc-mat-name">Дин рейка  -1м</div>
+                <input id="mat55_qty" type="number" step="0.01" value="0">
+                <input id="mat55_price" type="number" step="0.0001" value="0.775">
+                <span id="mat55_sum">0</span>
+            </div>
+
+        </div>
+
+        <div class="calc-results">
+            <div class="calc-results-row">
+                <span>Монтажный набор, € (F56)</span>
+                <span id="calcF56">0</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="calc-section">
+        <div class="calc-section-title">Размеры панелей</div>
+
+        <table class="calc-table">
+            <thead>
+            <tr>
+                <th>Шкаф, щит, панель, изделия и т.п.</th>
+                <th>Кол-во листов, шт.</th>
+                <th>Ширина см</th>
+                <th>Высота см</th>
+                <th>Площадь см²</th>
+            </tr>
+            </thead>
+
+            <tbody>
+            <tr>
+                <td>Передняя и задняя стенки</td>
+                <td><input id="r1_qty" value="2"></td>
+                <td><input id="r1_w" value="80"></td>
+                <td><input id="r1_h" value="210"></td>
+                <td id="r1_s">33600</td>
+            </tr>
+
+            <tr>
+                <td>Боковые стенки</td>
+                <td><input id="r2_qty" value="2"></td>
+                <td><input id="r2_w" value="40"></td>
+                <td><input id="r2_h" value="210"></td>
+                <td id="r2_s">16800</td>
+            </tr>
+
+            <tr>
+                <td>Верх низ стенк</td>
+                <td><input id="r3_qty" value="2"></td>
+                <td><input id="r3_w" value="40"></td>
+                <td><input id="r3_h" value="80"></td>
+                <td id="r3_s">6400</td>
+            </tr>
+
+            <tr>
+                <td>Фалш пан</td>
+                <td><input id="r4_qty" value="1"></td>
+                <td><input id="r4_w" value="80"></td>
+                <td><input id="r4_h" value="210"></td>
+                <td id="r4_s">16800</td>
+            </tr>
+
+            <tr>
+                <td>Внутренност</td>
+                <td><input id="r5_qty" value="0.5"></td>
+                <td><input id="r5_w" value="80"></td>
+                <td><input id="r5_h" value="210"></td>
+                <td id="r5_s">8400</td>
+            </tr>
+            </tbody>
+        </table>
+
+        <div class="calc-results">
+            <div class="calc-results-row">
+                <span>Итого см²</span>
+                <span id="sum127100">127100</span>
+            </div>
+
+            <div class="calc-results-row">
+                <span>Лист мет</span>
+                <span id="metalSheets">4.1</span>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="calc-section">
+        <div class="calc-section-title">Металл и покраска</div>
+
+        <div class="calc-grid">
+
+            <div class="calc-field-row">
+                <label>Расход краски</label>
+                <input id="c70" value="0.3">
+            </div>
+
+            <div class="calc-field-row">
+                <label>Цена краски за кг</label>
+                <input id="c71" value="2500">
+            </div>
+
+            <div class="calc-field-row">
+                <label>Толщ металла</label>
+                <input id="c72" value="2">
+            </div>
+
+            <div class="calc-field-row">
+                <label>Цена мет за кг</label>
+                <input id="c73" value="460">
+            </div>
+
+        </div>
+
+        <div class="calc-results">
+
+            <div class="calc-results-row">
+                <span>Расход металла, вес щита</span>
+                <span id="c74">200.82 кг</span>
+            </div>
+
+            <div class="calc-results-row">
+                <span>Металл себестоимость</span>
+                <span id="c75">92376 тг</span>
+            </div>
+
+            <div class="calc-results-row">
+                <span>Краска себестоимость</span>
+                <span id="c76">12300 тг</span>
+            </div>
+
+            <div class="calc-results-row">
+                <span>Монтажный набор себестоимость</span>
+                <span id="c77">17852 тг</span>
+            </div>
+
+            <div class="calc-results-row">
+                <span>Себестоимость материалов шкафа</span>
+                <span id="c78">122528 тг</span>
+            </div>
+
+            <div class="calc-results-row">
+                <span>Производственные и адм наклд расходы</span>
+                <span id="c79">122528 тг</span>
+            </div>
+
+            <div class="calc-results-row">
+                <span>Цена продажная ELCOS:</span>
+                <span id="c80">196045 тг</span>
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ================= ЛОГИСТИКА ================= -->
+    <div class="calc-section">
+        <div class="calc-section-title">Накладные, упаковка, логистика</div>
+
+        <div class="calc-grid">
+
+            <div class="calc-field-row">
+                <label>Упаковка</label>
+                <span id="packCost">6260 тг</span>
+            </div>
+
+            <div class="calc-field-row">
+                <label>Упаковка с пенопластом (стрейч-пленка, пенопласт) м3:</label>
+                <span>упаковка</span>
+                <input id="packFoam_qty" value="1" type="number">
+                <span>15 €</span>
+                <span id="packFoam_sum">10.08 Euro</span>
+            </div>
+
+            <div class="calc-field-row">
+                <label>Упаковка деревянная (стрейч-пленка, пенопласт, доски) м3:</label>
+                <span>упаковка</span>
+                <input id="packWood_qty" value="0" type="number">
+                <span>45 €</span>
+                <span id="packWood_sum">0 Euro</span>
+            </div>
+
+            <div class="calc-field-row">
+                <label>г. Атырау ж/д багаж тариф за кг</label>
+                <input id="railCost" value="0">
+                <span>тг</span>
+                <span id="railSum">0 тг</span>
+            </div>
+
+        </div>
+
+        <div class="calc-results">
+            <div class="calc-results-row">
+                <span>Цена продажная с упаковкой и доставкой ELCOS:</span>
+                <span id="finalPrice">202305 тг</span>
+            </div>
+        </div>
+
+    </div>
+
+
+    <div class="calc-results">
+            <div class="calc-results-row">
+                <span>Себестоимость материалов (C78)</span>
+                <span id="calcC78">0</span>
+            </div>
+
+            <div class="calc-results-row">
+                <span>Финальная цена (C87)</span>
+                <span id="calcC87">0</span>
+            </div>
+        </div>
+    </div>
+
+    <button id="calcAddToCartBtn" type="button" class="btn btn-primary" style="width:100%;">
+        Добавить в смету
+    </button>
+
 </section>
+
+
+
 
 <div class="modal fade" id="uploadEstimateModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-sm">
@@ -1311,6 +1955,7 @@
         // ===== Итоги по корзине =====
         function recalcSummary() {
             const rows = qsa('tr[data-product-id]', cartTbody);
+
             let positions = 0;
             let totalQty = 0;
             let grand = 0;
@@ -1318,35 +1963,47 @@
             rows.forEach(tr => {
                 const qty   = Number(qs('input.qty', tr)?.value || 0);
                 const coeff = Number(qs('input.coeff', tr)?.value || 1);
+
                 const priceEl = qs('.price', tr);
-                const unit  = Number(priceEl?.dataset.unitPrice ?? priceEl?.getAttribute('data-unit-price') ?? 0);
+                const base = Number(priceEl?.dataset.basePrice ?? 0);
+                const unit = base * coeff;
+
                 if (qty > 0) {
                     positions += 1;
                     totalQty  += qty;
-                    grand     += qty * coeff * unit;
+                    grand     += qty * unit;
                 }
             });
 
-            const posEl = document.getElementById('positionsCount');
-            const qtyEl = document.getElementById('totalQty');
-            const sumEl = document.getElementById('grandTotal');
-
-            if (posEl) posEl.textContent = String(positions);
-            if (qtyEl) qtyEl.textContent = String(totalQty);
-            if (sumEl) sumEl.textContent = fmtMoney(grand);
+            document.getElementById('positionsCount')?.replaceChildren(document.createTextNode(String(positions)));
+            document.getElementById('totalQty')?.replaceChildren(document.createTextNode(String(totalQty)));
+            document.getElementById('grandTotal')?.replaceChildren(document.createTextNode(fmtMoney(grand)));
         }
+
 
         function recalcRowSum(tr){
             const qty = Number(qs('input.qty', tr)?.value || 0);
             const coeff = Number(qs('input.coeff', tr)?.value || 1);
+
             const priceEl = qs('.price', tr);
-            const unit = Number(priceEl?.dataset.unitPrice ?? priceEl?.getAttribute('data-unit-price') ?? 0);
-            const sum = qty * coeff * unit;
+            const base = Number(priceEl?.dataset.basePrice ?? 0);
+
+            const unit = base * coeff;      // ✅ единичная цена с коэффициентом
+            const sum  = qty * unit;        // ✅ сумма без повторного coeff
+
+            // обновляем отображение "Цена, шт"
+            if (priceEl) {
+                priceEl.textContent = fmtMoney(unit);
+                priceEl.dataset.unitPrice = String(unit);
+            }
+
             const sumCell = qs('.sum', tr);
             sumCell.textContent = fmtMoney(sum);
             sumCell.dataset.value = String(sum);
+
             recalcSummary();
         }
+
 
         function recalcAllRows(){
             qsa('tr[data-product-id]', cartTbody).forEach(recalcRowSum);
@@ -1591,128 +2248,346 @@
             enableDnDOnRows();
         }
 
-        // ===== Калькулятор себестоимости (формулы как в Excel) =====
-        function calcNum(id){
+        // ===== Калькулятор «Пустое издел» (формулы 1:1 с Excel) =====
+
+        let calcState = null;
+
+        function num(id) {
             const el = document.getElementById(id);
             if (!el) return 0;
-            const raw = String(el.value ?? '').replace(',', '.').trim();
+            const raw = (el.value ?? el.textContent ?? "")
+                .toString()
+                .replace(/\s/g, "")
+                .replace(",", ".")
+                .trim();
             const n = parseFloat(raw);
-            return isNaN(n) ? 0 : n;
+            return Number.isFinite(n) ? n : 0;
         }
-        function setText(id, text){
+
+        function setSpan(id, value, fd = 2, suffix = "") {
             const el = document.getElementById(id);
-            if (el) el.textContent = text;
-        }
-        function recalcCalc(){
-            const C2  = calcNum('calcC2');
-            const C4  = calcNum('calcC4');
-            const C5  = calcNum('calcC5');
-            const C6  = calcNum('calcC6');
-            const C7  = calcNum('calcC7');
-
-            const C9  = calcNum('calcC9');
-            const C10 = calcNum('calcC10');
-            const C11 = calcNum('calcC11');
-            const C12 = calcNum('calcC12');
-            const C13 = calcNum('calcC13');
-
-            const C15 = calcNum('calcC15');
-            const C16 = calcNum('calcC16');
-            const C17 = calcNum('calcC17');
-            const C18 = calcNum('calcC18');
-
-            const area_mm2 = (C12 + C13 + C9) * C4 * C5
-                + C10 * C6 * C4
-                + C11 * C5 * C6;
-
-            const S = area_mm2 / 1_000_000;
-
-            const mass = 0.0079 * C7 / 10 * (area_mm2 / 100);
-
-            const metalCost = 0.0079 * C7 / 10 * C17 * (1.55 * area_mm2 / 100);
-            const paintCost = (2 * S) * C15 * C16;
-            const costTenge = (metalCost + paintCost) * C18;
-
-            setText('calcC20', S.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}));
-            setText('calcC21', mass.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}));
-            setText('calcC22', Math.round(costTenge).toLocaleString('ru-RU'));
-            const costEuro = (C2 > 0) ? (costTenge / C2) : 0;
-            setText('calcC23', costEuro.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+            if (!el) return;
+            const v = Number.isFinite(value) ? value : 0;
+            el.textContent =
+                v.toLocaleString("ru-RU", { minimumFractionDigits: fd, maximumFractionDigits: fd }) + suffix;
         }
 
-        function readCalcPayload(){
-            // исходные параметры
-            const payload = {
-                euroRate:  calcNum('calcC2'),
-                heightMm:  calcNum('calcC4'),
-                widthMm:   calcNum('calcC5'),
-                depthMm:   calcNum('calcC6'),
-                thicknessMm: calcNum('calcC7'),
+        function setInput(id, value, fd = null) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const v = Number.isFinite(value) ? value : 0;
+            // чтобы инпуты выглядели “как числа”, без локали:
+            el.value = fd == null ? String(v) : String(Number(v.toFixed(fd)));
+        }
 
-                frontBackQty: calcNum('calcC9'),
-                sideQty:      calcNum('calcC10'),
-                topBottomQty: calcNum('calcC11'),
-                falsePanelQty: calcNum('calcC12'),
-                innerQty:      calcNum('calcC13'),
+        function lockInput(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.readOnly = true;
+        }
 
-                paintKgPerM2: calcNum('calcC15'),
-                paintPrice:   calcNum('calcC16'),
-                metalPrice:   calcNum('calcC17'),
-                complexityK:  calcNum('calcC18'),
-            };
+        function recalcCalc() {
+            // ===== входные (как в Excel) =====
+            const C7 = num("calcC7"); // курс EUR
+            const C8 = num("calcC8"); // коэф Елкос
 
-            // пересчитаем локально, чтобы гарантировать консистентность
-            const area_mm2 = (payload.falsePanelQty + payload.innerQty + payload.frontBackQty) * payload.heightMm * payload.widthMm
-                + payload.sideQty * payload.depthMm * payload.heightMm
-                + payload.topBottomQty * payload.widthMm * payload.depthMm;
+            const B12 = num("calcB12"); // высота мм
+            const C12 = num("calcC12"); // ширина мм
+            const D12 = num("calcD12"); // глубина мм
 
-            const areaM2 = area_mm2 / 1_000_000;
-            const massKg = 0.0079 * payload.thicknessMm / 10 * (area_mm2 / 100);
-            const metalCost = 0.0079 * payload.thicknessMm / 10 * payload.metalPrice * (1.55 * area_mm2 / 100);
-            const paintCost = (2 * areaM2) * payload.paintKgPerM2 * payload.paintPrice;
-            const costTenge = (metalCost + paintCost) * payload.complexityK;
-            const costEuro  = payload.euroRate > 0 ? costTenge / payload.euroRate : 0;
+            // Толщина: в Excel C72 (и E12 у вас в UI). Синхронизируем.
+            let C72 = num("c72");
+            if (!C72) C72 = num("calcE12");
+            setInput("c72", C72);
+            setInput("calcE12", C72);
 
-            payload.results = {
+            const C70 = num("c70"); // расход краски
+            const C71 = num("c71"); // цена краски/кг
+            const C73 = num("c73"); // цена металла/кг
+
+            const E79 = 1;       // в файле E79 = 1
+            const K_AREA = 1.55; // F67 = F66*1.55
+            const SHEET_CM2 = 31250;
+            const DENSITY = 7.9;
+            const RAIL_K = 1.2;
+
+            // ===== F12, G12 =====
+            const volumeM3 = (B12 * C12 * D12) / 1_000_000_000; // F12
+            const areaM2 =
+                (((B12 * C12) + (C12 * D12) + (B12 * D12)) * 2) / 1_000_000; // G12
+
+            setSpan("calcF12", volumeM3, 3);
+            setSpan("calcG12", areaM2, 2);
+
+            // ===== Расходники: F15..F55, F56 (EUR) =====
+            let F56 = 0;
+
+            // D15 = (B12+C12)/1000*2
+            const D15 = ((B12 + C12) / 1000) * 2;
+            setInput("mat15_qty", D15, 2);
+            lockInput("mat15_qty");
+
+            const E15 = num("mat15_price");
+            const F15 = D15 * E15;
+            setSpan("mat15_sum", F15, 2, " €");
+            F56 += F15;
+
+            for (let r = 16; r <= 55; r++) {
+                const qty = num(`mat${r}_qty`);
+                const price = num(`mat${r}_price`);
+                const sum = qty * price;
+                setSpan(`mat${r}_sum`, sum, 2, " €");
+                F56 += sum;
+            }
+            setSpan("calcF56", F56, 2, " €");
+
+            // ===== Панели: F61..F65, F66, F67, F68 =====
+            // Excel количества C61..C65: 2,2,2,1,0.5
+            const q1 = 2, q2 = 2, q3 = 2, q4 = 1, q5 = 0.5;
+
+            // Excel размеры (см):
+            // D61=C12/10, E61=B12/10
+            // D62=D12/10, E62=B12/10
+            // D63=D12/10, E63=C12/10
+            const wFront = C12 / 10, hFront = B12 / 10;
+            const wSide  = D12 / 10, hSide  = B12 / 10;
+            const wTop   = D12 / 10, hTop   = C12 / 10;
+
+            setInput("r1_qty", q1); setInput("r1_w", wFront); setInput("r1_h", hFront);
+            setInput("r2_qty", q2); setInput("r2_w", wSide);  setInput("r2_h", hSide);
+            setInput("r3_qty", q3); setInput("r3_w", wTop);   setInput("r3_h", hTop);
+            setInput("r4_qty", q4); setInput("r4_w", wFront); setInput("r4_h", hFront);
+            setInput("r5_qty", q5); setInput("r5_w", wFront); setInput("r5_h", hFront);
+
+            [
+                "r1_qty","r1_w","r1_h",
+                "r2_qty","r2_w","r2_h",
+                "r3_qty","r3_w","r3_h",
+                "r4_qty","r4_w","r4_h",
+                "r5_qty","r5_w","r5_h"
+            ].forEach(lockInput);
+
+            const F61 = q1 * wFront * hFront;
+            const F62 = q2 * wSide  * hSide;
+            const F63 = q3 * wTop   * hTop;
+            const F64 = q4 * wFront * hFront;
+            const F65 = q5 * wFront * hFront;
+
+            const F66 = F61 + F62 + F63 + F64 + F65;
+            const F67 = F66 * K_AREA;
+            const F68 = F67 / SHEET_CM2;
+
+            setSpan("r1_s", F61, 0);
+            setSpan("r2_s", F62, 0);
+            setSpan("r3_s", F63, 0);
+            setSpan("r4_s", F64, 0);
+            setSpan("r5_s", F65, 0);
+
+            // В вашем UI sum127100 — это именно F67 (82000*1.55=127100)
+            setSpan("sum127100", F67, 0);
+            setSpan("metalSheets", F68, 1);
+
+            // ===== Металл / покраска: C74..C80 =====
+            const C74 = (F67 * (C72 / 10) * DENSITY) / 1000; // кг
+            const C75 = C73 * C74;                           // тг
+            const C76 = ((F66 / 10000) * 2) * C70 * C71;     // тг
+            const C77 = F56 * C7;                            // тг
+            const C78 = (C75 + C76) + C77;                   // тг
+            const C79 = C78 * E79;                           // тг
+            const C80 = C79 + (C78 * C8 - C78);              // тг
+
+            setSpan("c74", C74, 2, " кг");
+            setSpan("c75", C75, 0, " тг");
+            setSpan("c76", C76, 0, " тг");
+            setSpan("c77", C77, 0, " тг");
+            setSpan("c78", C78, 0, " тг");
+            setSpan("c79", C79, 0, " тг");
+            setSpan("c80", C80, 0, " тг");
+
+            // ===== Упаковка / логистика: C81, E86, C87 =====
+            // Excel: E82=15, E83=45 (€/м3) — у вас текстом в UI
+            const D82 = num("packFoam_qty");
+            const D83 = num("packWood_qty");
+            const E82 = 15;
+            const E83 = 45;
+
+            const F82 = D82 * E82 * volumeM3; // €
+            const F83 = D83 * E83 * volumeM3; // €
+            const C81 = (F82 + F83) * C7;     // тг
+
+            setSpan("packFoam_sum", F82, 2, " €");
+            setSpan("packWood_sum", F83, 2, " €");
+            setSpan("packCost", C81, 0, " тг");
+
+            const C86 = num("railCost");         // тг/кг
+            const E86v = C74 * C86 * RAIL_K;     // тг
+            setSpan("railSum", E86v, 0, " тг");
+
+            const C87 = C80 + C81 + E86v;
+            setSpan("finalPrice", C87, 0, " тг");
+
+            // нижние выводы (если оставляете)
+            setSpan("calcC78", C78, 0, " тг");
+            setSpan("calcC87", C87, 0, " тг");
+
+            // payload для виртуального товара
+            calcState = {
+                euroRate: C7,
+                elcosK: C8,
+                heightMm: B12,
+                widthMm: C12,
+                depthMm: D12,
+                thicknessMm: C72,
+                paintKgPerM2: C70,
+                paintPriceTengePerKg: C71,
+                metalPriceTengePerKg: C73,
+                overheadK: E79,
+                railTariffTengePerKg: C86,
+                volumeM3,
                 areaM2,
-                massKg,
-                costTenge: Math.round(costTenge),
-                costEuro
+                montageEuroSum: F56,
+                results: {
+                    areaRawCm2: F66,
+                    areaAdjCm2: F67,
+                    metalSheets: F68,
+                    massKg: C74,
+                    metalCostTenge: C75,
+                    paintCostTenge: C76,
+                    montageCostTenge: C77,
+                    materialsCostTenge: C78,
+                    overheadCostTenge: C79,
+                    priceWithoutPackingTenge: C80,
+                    packingCostTenge: C81,
+                    railCostTenge: E86v,
+                    finalPriceTenge: C87
+                }
             };
-
-            return payload;
         }
 
-        async function addVirtualProductToCart(){
-            const btn = document.getElementById('calcAddToCartBtn');
+        function readCalcPayload() {
+            if (!calcState) recalcCalc();
+            return calcState;
+        }
+
+        function initCalc() {
+            const panel = document.getElementById("calcFloatingPanel");
+            if (!panel) return;
+
+            const toggle = document.getElementById("calcToggleFloating");
+            const closeBt = document.getElementById("calcCloseBtn");
+            const header = panel.querySelector(".calc-header");
+
+            function setVisible(v) {
+                if (!toggle) return;
+                if (v) {
+                    panel.classList.add("visible");
+                    panel.style.right = "56px";
+                    panel.style.left = "auto";
+                    panel.style.top = "50%";
+                    panel.style.transform = "translateY(-50%)";
+                    toggle.innerHTML = "&gt;";
+                } else {
+                    panel.classList.remove("visible");
+                    toggle.innerHTML = "&lt;";
+                }
+            }
+
+            if (toggle) {
+                toggle.addEventListener("click", () => {
+                    setVisible(!panel.classList.contains("visible"));
+                });
+            }
+            if (closeBt) closeBt.addEventListener("click", () => setVisible(false));
+
+            // drag по заголовку (как у вас было)
+            if (header) {
+                let dragging = false, offsetX = 0, offsetY = 0;
+
+                header.addEventListener("mousedown", (e) => {
+                    if (e.target.closest("button") || e.target.closest("input")) return;
+                    dragging = true;
+
+                    const rect = panel.getBoundingClientRect();
+                    offsetX = e.clientX - rect.left;
+                    offsetY = e.clientY - rect.top;
+
+                    panel.style.right = "auto";
+                    panel.style.transform = "none";
+
+                    function onMove(ev) {
+                        if (!dragging) return;
+                        const w = window.innerWidth, h = window.innerHeight;
+                        let left = ev.clientX - offsetX;
+                        let top = ev.clientY - offsetY;
+
+                        const r = panel.getBoundingClientRect();
+                        left = Math.max(8, Math.min(w - r.width - 8, left));
+                        top = Math.max(8, Math.min(h - r.height - 8, top));
+
+                        panel.style.left = left + "px";
+                        panel.style.top = top + "px";
+                    }
+
+                    function onUp() {
+                        dragging = false;
+                        document.removeEventListener("mousemove", onMove);
+                        document.removeEventListener("mouseup", onUp);
+                    }
+
+                    document.addEventListener("mousemove", onMove);
+                    document.addEventListener("mouseup", onUp);
+                    e.preventDefault();
+                });
+            }
+
+            // ВАЖНО: слушаем ВСЕ инпуты калькулятора, а не только .calc-input
+            panel.querySelectorAll("input").forEach((i) => {
+                i.addEventListener("input", recalcCalc);
+                i.addEventListener("change", recalcCalc);
+            });
+
+            // кнопка добавления
+            const addBtn = document.getElementById("calcAddToCartBtn");
+            if (addBtn) {
+                addBtn.addEventListener("click", addVirtualProductToCart);
+            }
+
+            recalcCalc();
+        }
+
+
+
+        async function addVirtualProductToCart() {
+            const btn = document.getElementById("calcAddToCartBtn");
             if (!btn) return;
 
-            // простая валидация
             const data = readCalcPayload();
-            if (data.heightMm <= 0 || data.widthMm <= 0 || data.depthMm <= 0 || data.thicknessMm <= 0){
-                alert('Проверь габариты и толщину металла: значения должны быть > 0');
+
+            if (data.heightMm <= 0 || data.widthMm <= 0 || data.depthMm <= 0 || data.thicknessMm <= 0) {
+                alert("Проверь габариты и толщину металла: значения должны быть > 0");
                 return;
             }
 
+            // ВАЖНО: фиксируем финальную цену (C87) как целое число в тенге
+            const finalTenge = Math.round(Number(data?.results?.finalPriceTenge || 0));
+            data.results.finalPriceTenge = finalTenge;
+
+            // Явно передаём цену за 1 шт для корзины (сервер должен использовать её)
+            data.unitPriceTenge = finalTenge;
+
             btn.disabled = true;
             const oldText = btn.textContent;
-            btn.textContent = 'Добавляем...';
+            btn.textContent = "Добавляем...";
 
             try {
-                // эндпоинт-заглушка (переименуем позже под твою логику)
-                const res = await api('/cart/virtual/add', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
+                await api("/cart/virtual/add", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(data),
                 });
-
-                // 1) простой вариант: перезагрузить корзину
-                //   так мы точно подтянем маппинг папок, цены, коэффициенты и т.д.
                 location.reload();
-
-                // 2) если позже захочешь без reload — сделаем вставку строки в таблицу по res
-            } catch(e){
-                alert('Не удалось добавить виртуальный товар: ' + e.message);
+            } catch (e) {
+                alert("Не удалось добавить виртуальный товар: " + e.message);
             } finally {
                 btn.disabled = false;
                 btn.textContent = oldText;
@@ -1720,94 +2595,6 @@
         }
 
 
-        function initCalc(){
-            const inputs = qsa('.calc-input');
-            if (!inputs.length) return;
-
-            const panel   = document.getElementById('calcFloatingPanel');
-            const toggle  = document.getElementById('calcToggleFloating');
-            const closeBt = document.getElementById('calcCloseBtn');
-            const header  = panel?.querySelector('.calc-header');
-
-            function setVisible(v){
-                if (!panel || !toggle) return;
-                if (v){
-                    panel.classList.add('visible');
-                    panel.style.right = '56px';
-                    panel.style.left  = 'auto';
-                    panel.style.top   = '50%';
-                    panel.style.transform = 'translateY(-50%)';
-                    toggle.innerHTML = '&gt;';
-                } else {
-                    panel.classList.remove('visible');
-                    toggle.innerHTML = '&lt;';
-                }
-            }
-
-            if (toggle && panel){
-                toggle.addEventListener('click', ()=>{
-                    setVisible(!panel.classList.contains('visible'));
-                });
-            }
-            if (closeBt){
-                closeBt.addEventListener('click', ()=>setVisible(false));
-            }
-
-            // перетаскивание панели за заголовок
-            // перетаскивание панели за заголовок
-            if (header && panel){
-                let dragging = false;
-                let offsetX = 0, offsetY = 0;
-
-                header.addEventListener('mousedown', e=>{
-                    // НЕ начинать drag, если нажали на кнопку/инпут (в т.ч. "✕")
-                    if (e.target.closest('button') || e.target.closest('input')) {
-                        return;
-                    }
-
-                    dragging = true;
-                    const rect = panel.getBoundingClientRect();
-                    offsetX = e.clientX - rect.left;
-                    offsetY = e.clientY - rect.top;
-
-                    panel.style.right = 'auto';
-                    panel.style.transform = 'none';
-
-                    function onMove(ev){
-                        if (!dragging) return;
-                        const w = window.innerWidth;
-                        const h = window.innerHeight;
-                        let left = ev.clientX - offsetX;
-                        let top  = ev.clientY - offsetY;
-
-                        const r = panel.getBoundingClientRect();
-                        left = Math.max(8, Math.min(w - r.width - 8, left));
-                        top  = Math.max(8, Math.min(h - r.height - 8, top));
-
-                        panel.style.left = left + 'px';
-                        panel.style.top  = top + 'px';
-                    }
-                    function onUp(){
-                        dragging = false;
-                        document.removeEventListener('mousemove', onMove);
-                        document.removeEventListener('mouseup', onUp);
-                    }
-
-                    document.addEventListener('mousemove', onMove);
-                    document.addEventListener('mouseup', onUp);
-                    e.preventDefault();
-                });
-            }
-
-            const addBtn = document.getElementById('calcAddToCartBtn');
-            if (addBtn){
-                addBtn.addEventListener('click', addVirtualProductToCart);
-            }
-
-
-            inputs.forEach(i => i.addEventListener('input', recalcCalc));
-            recalcCalc();
-        }
 
         // ===== Инициализация =====
         (async function init(){
@@ -1875,8 +2662,6 @@
     if (e.target.closest('.name-cell')) hideTip();
 }, true);
 });
-
-
 
 </script>
 </body>

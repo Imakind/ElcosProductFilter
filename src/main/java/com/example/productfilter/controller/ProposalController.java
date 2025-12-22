@@ -326,8 +326,8 @@ public class ProposalController {
                 roots.add(secNodes.get(1L));
             }
 
-// считаем прямые суммы по товарам
-            // считаем прямые суммы по товарам
+            Map<Integer, Double> priceOverride = getPriceOverride(session);
+
             double grand = 0.0;
             for (Product p : products) {
                 Integer pid = p.getProductId();
@@ -336,7 +336,7 @@ public class ProposalController {
                 int qty = cart.getOrDefault(pid, 0);
                 if (qty <= 0) continue;
 
-                double basePrice = (p.getPrice() == null ? 0.0 : p.getPrice().doubleValue());
+                double basePrice = resolveBasePrice(p, pid, priceOverride);
                 double k = coefficientMap.getOrDefault(pid, 1.0);
                 double price = basePrice * k;
                 double sum = price * qty;
@@ -346,7 +346,6 @@ public class ProposalController {
                 long sid = Optional.ofNullable(productSection.get(pid)).orElse(1L);
                 PdfSecNode node = secNodes.get(sid);
                 if (node == null) {
-                    // если нет такой секции — сваливаемся в корень 1L
                     PdfSecNode root = secNodes.get(1L);
                     if (root == null) {
                         String rootName = sections.getOrDefault(1L, "Общий");
@@ -357,6 +356,7 @@ public class ProposalController {
                 }
                 node.directSum += sum;
             }
+
 
 
 // totalSum = directSum + суммы детей
@@ -539,6 +539,7 @@ public class ProposalController {
 
             // считаем суммы по товарам: directSum в секции и общий grand
             double grand = 0.0;
+            Map<Integer, Double> priceOverride = getPriceOverride(session);
             for (Product p : products) {
                 Integer pid = p.getProductId();
                 if (pid == null) continue;
@@ -546,10 +547,11 @@ public class ProposalController {
                 int qty = cart.getOrDefault(pid, 0);
                 if (qty <= 0) continue;
 
-                double base = (p.getPrice() == null ? 0.0 : p.getPrice().doubleValue());
+                double base = resolveBasePrice(p, pid, priceOverride);
                 double k = coeffs.getOrDefault(pid, 1.0);
                 double price = base * k;
                 double sum = price * qty;
+
 
                 grand += sum;
 
@@ -1016,5 +1018,29 @@ public class ProposalController {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private static Map<Integer, Double> getPriceOverride(HttpSession session) {
+        Map<Integer, Double> m = (Map<Integer, Double>) session.getAttribute("proposalPriceOverrideMap");
+        if (m == null || m.isEmpty()) {
+            m = (Map<Integer, Double>) session.getAttribute("priceOverrideMap");
+        }
+        if (m == null) m = new HashMap<>();
+        System.out.println("proposalPriceOverrideMap size=" +
+                Optional.ofNullable((Map<?,?>) session.getAttribute("proposalPriceOverrideMap")).map(Map::size).orElse(0));
+        System.out.println("priceOverrideMap size=" +
+                Optional.ofNullable((Map<?,?>) session.getAttribute("priceOverrideMap")).map(Map::size).orElse(0));
+        System.out.println("unitPriceMap size=" +
+                Optional.ofNullable((Map<?,?>) session.getAttribute("unitPriceMap")).map(Map::size).orElse(0));
+
+        return m;
+    }
+
+    private static double resolveBasePrice(Product p, Integer pid, Map<Integer, Double> priceOverride) {
+        if (pid != null && priceOverride != null && priceOverride.containsKey(pid)) {
+            Double v = priceOverride.get(pid);
+            return v != null ? v : 0.0;
+        }
+        return (p.getPrice() != null ? p.getPrice().doubleValue() : 0.0);
+    }
 
 }

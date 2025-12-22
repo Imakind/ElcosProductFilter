@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class VirtualProductRequest {
+    private int unitPriceTenge; // <-- ДОБАВИТЬ
+
 
     private double euroRate;
     private double heightMm;
@@ -23,7 +25,6 @@ public class VirtualProductRequest {
     private double metalPrice;
     private double complexityK;
 
-    private Results results;
 
     // ===== getters/setters =====
     public double getEuroRate() { return euroRate; }
@@ -70,12 +71,20 @@ public class VirtualProductRequest {
 
     public Results getResults() { return results; }
     public void setResults(Results results) { this.results = results; }
+    public int getUnitPriceTenge() { return unitPriceTenge; }
+    public void setUnitPriceTenge(int unitPriceTenge) { this.unitPriceTenge = unitPriceTenge; }
 
-    // ===== inner class =====
+    private Results results;
+
     public static class Results {
+        private int finalPriceTenge; // <-- ДОБАВИТЬ (если хочешь как в payload)
+        public int getFinalPriceTenge() { return finalPriceTenge; }
+        public void setFinalPriceTenge(int finalPriceTenge) { this.finalPriceTenge = finalPriceTenge; }
+
+        // оставь что есть
+        private int costTenge;
         private double areaM2;
         private double massKg;
-        private int costTenge;
         private double costEuro;
 
         public double getAreaM2() { return areaM2; }
