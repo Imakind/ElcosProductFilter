@@ -61,6 +61,10 @@ import static java.util.stream.Collectors.toSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigInteger;
+import java.util.*;
+import java.util.stream.Collectors;
+
 
 @Controller
 public class ProductFilterController {
@@ -104,11 +108,11 @@ public class ProductFilterController {
         model.addAttribute("brands", brandRepo.findAll());
         model.addAttribute("groups", categoryRepo.findByParentCategoryIdIsNull());
         model.addAttribute("subGroups", List.of());
-        model.addAttribute("param1List", parameterRepo.findDistinctParam1());
-        model.addAttribute("param2List", parameterRepo.findDistinctParam2());
-        model.addAttribute("param3List", parameterRepo.findDistinctParam3());
-        model.addAttribute("param4List", parameterRepo.findDistinctParam4());
-        model.addAttribute("param5List", parameterRepo.findDistinctParam5());
+        model.addAttribute("param1List", toSortedSet(parameterRepo.findDistinctParam1()));
+        model.addAttribute("param2List", toSortedSet(parameterRepo.findDistinctParam2()));
+        model.addAttribute("param3List", toSortedSet(parameterRepo.findDistinctParam3()));
+        model.addAttribute("param4List", toSortedSet(parameterRepo.findDistinctParam4()));
+        model.addAttribute("param5List", toSortedSet(parameterRepo.findDistinctParam5()));
         model.addAttribute("filterParams", new HashMap<String, Object>());
 
         Map<Integer, Integer> cart = (Map<Integer, Integer>) session.getAttribute("cart");
@@ -139,8 +143,11 @@ public class ProductFilterController {
                 params.stream()
                         .map(ProductParameters::getParam1)
                         .filter(Objects::nonNull)
-                        .collect(toSet())
+                        .map(String::trim)
+                        .filter(v -> !v.isBlank())
+                        .collect(Collectors.toCollection(() -> new TreeSet<>(PARAM_NATURAL_COMPARATOR)))
         );
+
 
         return response;
     }
@@ -223,11 +230,11 @@ public class ProductFilterController {
         // FIX: если нет контекста — как на главной (глобальные distinct)
         if (emptyCtx) {
             return Map.of(
-                    "param1List", new LinkedHashSet<>(parameterRepo.findDistinctParam1()),
-                    "param2List", new LinkedHashSet<>(parameterRepo.findDistinctParam2()),
-                    "param3List", new LinkedHashSet<>(parameterRepo.findDistinctParam3()),
-                    "param4List", new LinkedHashSet<>(parameterRepo.findDistinctParam4()),
-                    "param5List", new LinkedHashSet<>(parameterRepo.findDistinctParam5())
+                    "param1List", toSortedSet(parameterRepo.findDistinctParam1()),
+                    "param2List", toSortedSet(parameterRepo.findDistinctParam2()),
+                    "param3List", toSortedSet(parameterRepo.findDistinctParam3()),
+                    "param4List", toSortedSet(parameterRepo.findDistinctParam4()),
+                    "param5List", toSortedSet(parameterRepo.findDistinctParam5())
             );
         }
 
@@ -254,11 +261,11 @@ public class ProductFilterController {
         List<ProductParameters> params = parameterRepo.findByProduct_ProductIdIn(ids);
 
         return Map.of(
-                "param1List", params.stream().map(ProductParameters::getParam1).filter(Objects::nonNull).collect(toSet()),
-                "param2List", params.stream().map(ProductParameters::getParam2).filter(Objects::nonNull).collect(toSet()),
-                "param3List", params.stream().map(ProductParameters::getParam3).filter(Objects::nonNull).collect(toSet()),
-                "param4List", params.stream().map(ProductParameters::getParam4).filter(Objects::nonNull).collect(toSet()),
-                "param5List", params.stream().map(ProductParameters::getParam5).filter(Objects::nonNull).collect(toSet())
+                "param1List", toSortedSet(params.stream().map(ProductParameters::getParam1).toList()),
+                "param2List", toSortedSet(params.stream().map(ProductParameters::getParam2).toList()),
+                "param3List", toSortedSet(params.stream().map(ProductParameters::getParam3).toList()),
+                "param4List", toSortedSet(params.stream().map(ProductParameters::getParam4).toList()),
+                "param5List", toSortedSet(params.stream().map(ProductParameters::getParam5).toList())
         );
     }
 
@@ -438,6 +445,89 @@ public class ProductFilterController {
         model.addAttribute("proposalHistory", historyList);
 
         return "filter";
+    }
+
+
+    private static final Comparator<String> PARAM_NATURAL_COMPARATOR = (a, b) -> {
+        if (a == b) return 0;
+        if (a == null) return 1;
+        if (b == null) return -1;
+
+        String sa = normalizeParam(a);
+        String sb = normalizeParam(b);
+
+        List<Token> ta = tokenize(sa);
+        List<Token> tb = tokenize(sb);
+
+        int n = Math.min(ta.size(), tb.size());
+        for (int i = 0; i < n; i++) {
+            Token x = ta.get(i);
+            Token y = tb.get(i);
+
+            // числа раньше текста
+            if (x.isNumber && !y.isNumber) return -1;
+            if (!x.isNumber && y.isNumber) return 1;
+
+            int cmp;
+            if (x.isNumber) {
+                cmp = x.num.compareTo(y.num);
+            } else {
+                cmp = x.text.compareToIgnoreCase(y.text);
+            }
+            if (cmp != 0) return cmp;
+        }
+
+        // если все токены равны, короткая строка раньше
+        int lenCmp = sa.length() - sb.length();
+        if (lenCmp != 0) return lenCmp;
+
+        // финальный детерминизм
+        return sa.compareToIgnoreCase(sb);
+    };
+
+    private static String normalizeParam(String s) {
+        // убираем пробелы, приводим к единому виду (важно для "10 A", "10A")
+        return s.trim().replaceAll("\\s+", "");
+    }
+
+    private static final class Token {
+        final boolean isNumber;
+        final BigInteger num;
+        final String text;
+
+        private Token(BigInteger num) { this.isNumber = true; this.num = num; this.text = null; }
+        private Token(String text)    { this.isNumber = false; this.num = null; this.text = text; }
+
+        static Token number(String digits) { return new Token(new BigInteger(digits)); }
+        static Token text(String t)        { return new Token(t); }
+    }
+
+    private static List<Token> tokenize(String s) {
+        List<Token> out = new ArrayList<>();
+        int i = 0;
+        while (i < s.length()) {
+            char c = s.charAt(i);
+            if (Character.isDigit(c)) {
+                int j = i;
+                while (j < s.length() && Character.isDigit(s.charAt(j))) j++;
+                out.add(Token.number(s.substring(i, j)));
+                i = j;
+            } else {
+                int j = i;
+                while (j < s.length() && !Character.isDigit(s.charAt(j))) j++;
+                out.add(Token.text(s.substring(i, j)));
+                i = j;
+            }
+        }
+        return out;
+    }
+
+    private static Set<String> toSortedSet(Collection<String> values) {
+        return values.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(v -> !v.isBlank())
+                .collect(Collectors.toCollection(() -> new TreeSet<>(PARAM_NATURAL_COMPARATOR)));
     }
 
 
