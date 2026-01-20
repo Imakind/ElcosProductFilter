@@ -1072,41 +1072,41 @@
             <tbody>
             <tr>
                 <td>Передняя и задняя стенки</td>
-                <td><input id="r1_qty" value="2"></td>
-                <td><input id="r1_w" value="80"></td>
-                <td><input id="r1_h" value="210"></td>
+                <td><input id="r1_qty" type="number" step="0.01" min="0" value="2"></td>
+                <td><input id="r1_w" type="number" step="0.01" min="0" value="80"></td>
+                <td><input id="r1_h" type="number" step="0.01" min="0" value="210"></td>
                 <td id="r1_s">33600</td>
             </tr>
 
             <tr>
                 <td>Боковые стенки</td>
-                <td><input id="r2_qty" value="2"></td>
-                <td><input id="r2_w" value="40"></td>
-                <td><input id="r2_h" value="210"></td>
+                <td><input id="r2_qty" type="number" step="0.01" min="0" value="2"></td>
+                <td><input id="r2_w" type="number" step="0.01" min="0" value="40"></td>
+                <td><input id="r2_h" type="number" step="0.01" min="0" value="210"></td>
                 <td id="r2_s">16800</td>
             </tr>
 
             <tr>
                 <td>Верх низ стенк</td>
-                <td><input id="r3_qty" value="2"></td>
-                <td><input id="r3_w" value="40"></td>
-                <td><input id="r3_h" value="80"></td>
+                <td><input id="r3_qty" type="number" step="0.01" min="0" value="2"></td>
+                <td><input id="r3_w" type="number" step="0.01" min="0" value="40"></td>
+                <td><input id="r3_h" type="number" step="0.01" min="0" value="80"></td>
                 <td id="r3_s">6400</td>
             </tr>
 
             <tr>
                 <td>Фалш пан</td>
-                <td><input id="r4_qty" value="1"></td>
-                <td><input id="r4_w" value="80"></td>
-                <td><input id="r4_h" value="210"></td>
+                <td><input id="r4_qty" type="number" step="0.01" min="0" value="1"></td>
+                <td><input id="r4_w" type="number" step="0.01" min="0" value="80"></td>
+                <td><input id="r4_h" type="number" step="0.01" min="0" value="210"></td>
                 <td id="r4_s">16800</td>
             </tr>
 
             <tr>
                 <td>Внутренност</td>
-                <td><input id="r5_qty" value="0.5"></td>
-                <td><input id="r5_w" value="80"></td>
-                <td><input id="r5_h" value="210"></td>
+                <td><input id="r5_qty" type="number" step="0.01" min="0" value="0.5"></td>
+                <td><input id="r5_w" type="number" step="0.01" min="0" value="80"></td>
+                <td><input id="r5_h" type="number" step="0.01" min="0" value="210"></td>
                 <td id="r5_s">8400</td>
             </tr>
             </tbody>
@@ -2296,10 +2296,9 @@
             const D12 = num("calcD12"); // глубина мм
 
             // Толщина: в Excel C72 (и E12 у вас в UI). Синхронизируем.
-            let C72 = num("c72");
-            if (!C72) C72 = num("calcE12");
-            setInput("c72", C72);
-            setInput("calcE12", C72);
+            const C72 = num("calcE12"); // толщина панели — основной ввод
+            setInput("c72", C72);      // синхронизируем вторичное поле
+
 
             const C70 = num("c70"); // расход краски
             const C71 = num("c71"); // цена краски/кг
@@ -2323,14 +2322,13 @@
             let F56 = 0;
 
             // D15 = (B12+C12)/1000*2
-            const D15 = ((B12 + C12) / 1000) * 2;
-            setInput("mat15_qty", D15, 2);
-            lockInput("mat15_qty");
-
+            const D15 = num("mat15_qty");      // берём из input
             const E15 = num("mat15_price");
             const F15 = D15 * E15;
+
             setSpan("mat15_sum", F15, 2, " €");
             F56 += F15;
+
 
             for (let r = 16; r <= 55; r++) {
                 const qty = num(`mat${r}_qty`);
@@ -2343,35 +2341,18 @@
 
             // ===== Панели: F61..F65, F66, F67, F68 =====
             // Excel количества C61..C65: 2,2,2,1,0.5
-            const q1 = 2, q2 = 2, q3 = 2, q4 = 1, q5 = 0.5;
+            // ===== Панели: читаем из UI =====
+            const q1 = num("r1_qty"), w1 = num("r1_w"), h1 = num("r1_h");
+            const q2 = num("r2_qty"), w2 = num("r2_w"), h2 = num("r2_h");
+            const q3 = num("r3_qty"), w3 = num("r3_w"), h3 = num("r3_h");
+            const q4 = num("r4_qty"), w4 = num("r4_w"), h4 = num("r4_h");
+            const q5 = num("r5_qty"), w5 = num("r5_w"), h5 = num("r5_h");
 
-            // Excel размеры (см):
-            // D61=C12/10, E61=B12/10
-            // D62=D12/10, E62=B12/10
-            // D63=D12/10, E63=C12/10
-            const wFront = C12 / 10, hFront = B12 / 10;
-            const wSide  = D12 / 10, hSide  = B12 / 10;
-            const wTop   = D12 / 10, hTop   = C12 / 10;
-
-            setInput("r1_qty", q1); setInput("r1_w", wFront); setInput("r1_h", hFront);
-            setInput("r2_qty", q2); setInput("r2_w", wSide);  setInput("r2_h", hSide);
-            setInput("r3_qty", q3); setInput("r3_w", wTop);   setInput("r3_h", hTop);
-            setInput("r4_qty", q4); setInput("r4_w", wFront); setInput("r4_h", hFront);
-            setInput("r5_qty", q5); setInput("r5_w", wFront); setInput("r5_h", hFront);
-
-            [
-                "r1_qty","r1_w","r1_h",
-                "r2_qty","r2_w","r2_h",
-                "r3_qty","r3_w","r3_h",
-                "r4_qty","r4_w","r4_h",
-                "r5_qty","r5_w","r5_h"
-            ].forEach(lockInput);
-
-            const F61 = q1 * wFront * hFront;
-            const F62 = q2 * wSide  * hSide;
-            const F63 = q3 * wTop   * hTop;
-            const F64 = q4 * wFront * hFront;
-            const F65 = q5 * wFront * hFront;
+            const F61 = q1 * w1 * h1;
+            const F62 = q2 * w2 * h2;
+            const F63 = q3 * w3 * h3;
+            const F64 = q4 * w4 * h4;
+            const F65 = q5 * w5 * h5;
 
             const F66 = F61 + F62 + F63 + F64 + F65;
             const F67 = F66 * K_AREA;
@@ -2383,9 +2364,9 @@
             setSpan("r4_s", F64, 0);
             setSpan("r5_s", F65, 0);
 
-            // В вашем UI sum127100 — это именно F67 (82000*1.55=127100)
             setSpan("sum127100", F67, 0);
             setSpan("metalSheets", F68, 1);
+
 
             // ===== Металл / покраска: C74..C80 =====
             const C74 = (F67 * (C72 / 10) * DENSITY) / 1000; // кг
