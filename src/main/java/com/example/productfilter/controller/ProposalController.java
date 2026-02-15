@@ -448,12 +448,13 @@ public class ProposalController {
 
             // логотип справа
             try {
-                Path svg = Paths.get("C:\\Users\\alikt\\Downloads\\product-filter\\src\\main\\resources\\elcos_logo.svg");
-                byte[] png = svgToPngBytes(svg, 500f, null);
-                Image img = Image.getInstance(png);
-                img.scaleToFit(200, 100);
-                img.setAlignment(Image.RIGHT);
-                doc.add(img);
+                byte[] png = tryReadLogo(session);
+                if (png != null) {
+                    Image img = Image.getInstance(png);
+                    img.scaleToFit(200, 100);
+                    img.setAlignment(Image.RIGHT);
+                    doc.add(img);
+                }
             } catch (Exception ignore) {
             }
 
@@ -891,9 +892,17 @@ public class ProposalController {
         } catch (Exception ignore) {
         }
 
-        try {
-            Path svg = Paths.get("C:\\Users\\alikt\\Downloads\\product-filter\\src\\main\\resources\\elcos_logo.svg");
-            return svgToPngBytes(svg, 500f, null);
+        try (InputStream is = ProposalController.class.getResourceAsStream("/elcos_тог.svg")) {
+            if (is != null) {
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                PNGTranscoder t = new PNGTranscoder();
+                t.addTranscodingHint(PNGTranscoder.KEY_WIDTH, 500f);
+                TranscoderInput input = new TranscoderInput(is);
+                TranscoderOutput output = new TranscoderOutput(bos);
+                t.transcode(input, output);
+                bos.flush();
+                return bos.toByteArray();
+            }
         } catch (Exception ignore) {
         }
 
