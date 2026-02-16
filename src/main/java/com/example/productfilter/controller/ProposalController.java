@@ -892,7 +892,7 @@ public class ProposalController {
         } catch (Exception ignore) {
         }
 
-        try (InputStream is = ProposalController.class.getResourceAsStream("/elcos_тог.svg")) {
+        try (InputStream is = ProposalController.class.getResourceAsStream("/elcos_logo.svg")) {
             if (is != null) {
                 ByteArrayOutputStream bos = new ByteArrayOutputStream();
                 PNGTranscoder t = new PNGTranscoder();
