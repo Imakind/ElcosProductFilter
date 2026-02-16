@@ -121,4 +121,18 @@ public class CartService {
                 req.getThicknessMm()
         );
     }
+
+    @Transactional
+    public Product addSMRProduct(String name, double price) {
+        Product p = new Product();
+        p.setName(name);
+        p.setArticleCode("SMR-" + UUID.randomUUID());
+        p.setPrice(BigDecimal.valueOf(price));
+
+        Brand brand = brandRepository.findByBrandNameIgnoreCase("SMR")
+                .orElseGet(() -> brandRepository.save(new Brand("SMR")));
+        p.setBrand(brand);
+
+        return productRepository.saveAndFlush(p);
+    }
 }

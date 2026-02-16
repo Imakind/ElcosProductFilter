@@ -481,6 +481,7 @@
         <div class="toolbar">
             <a class="btn" href="/cart">Обновить</a>
             <a class="btn" href="/">На главную</a>
+            <button class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#smrModal">Добавить СМР</button>
             <a class="btn" href="/cart/excel">Выгрузить смету (Excel)</a>
             <a class="btn btn-success"
                data-bs-toggle="modal"
@@ -622,9 +623,16 @@
         bp3=${bp2 != null ? bp2 : (baseUnitPriceMap != null and baseUnitPriceMap.containsKey(T(java.lang.Integer).valueOf(pidS)) ? baseUnitPriceMap[T(java.lang.Integer).valueOf(pidS)] : null)},
         bp=${bp3 != null ? bp3 : 0}
     "
-                            th:attr="data-base-price=${bp}, data-unit-price=${bp}"
-                            th:text="${#numbers.formatDecimal(bp, 1, 2, 'COMMA')}">
-                            0,00
+                            th:attr="data-base-price=${bp}, data-unit-price=${bp}">
+                            
+                            <input th:if="${p.articleCode != null and (#strings.startsWith(p.articleCode, 'VIRT-') or #strings.startsWith(p.articleCode, 'SMR-'))}"
+                                   type="number" step="0.01" class="form-control form-control-sm text-end"
+                                   style="width: 100px; display:inline-block;"
+                                   th:value="${bp}"
+                                   th:onchange="'updatePrice(this, ' + ${p.productId} + ')'">
+
+                            <span th:unless="${p.articleCode != null and (#strings.startsWith(p.articleCode, 'VIRT-') or #strings.startsWith(p.articleCode, 'SMR-'))}"
+                                  th:text="${#numbers.formatDecimal(bp, 1, 2, 'COMMA')}">0,00</span>
                         </td>
 
 
@@ -2644,6 +2652,97 @@
 }, true);
 });
 
+</script>
+<!-- Modal for SMR -->
+<div class="modal fade" id="smrModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="background: #151515; border: 1px solid #2a2a2a; color: #eaeaea;">
+            <div class="modal-header" style="border-bottom: 1px solid #2a2a2a;">
+                <h5 class="modal-title">Добавить СМР</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Наименование работ</label>
+                    <input type="text" id="smrName" class="form-control" placeholder="Например: Монтаж щита" style="background:#1a1a1a; border:1px solid #2a2a2a; color:#eaeaea;">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Стоимость (тг)</label>
+                    <input type="number" id="smrPrice" class="form-control" placeholder="0" style="background:#1a1a1a; border:1px solid #2a2a2a; color:#eaeaea;">
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top: 1px solid #2a2a2a;">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="addSMR()">Добавить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function addSMR() {
+        const name = document.getElementById('smrName').value;
+        const price = document.getElementById('smrPrice').value;
+        if (!name || !price) { alert('Заполните все поля'); return; }
+
+        try {
+            const formData = new URLSearchParams();
+            formData.append('name', name);
+            formData.append('price', price);
+
+            // Add selected folder if any
+            // We can access 'selectedFolderId' from the global scope if it's available,
+            // but let's just add to root for now or try to get it.
+            // Assuming 'selectedFolderId' is available from the main script.
+            if (typeof selectedFolderId !== 'undefined' && selectedFolderId !== 1) {
+                 formData.append('sectionId', selectedFolderId);
+            }
+
+            const r = await fetch('/cart/smr/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formData
+            });
+            if (!r.ok) throw new Error(await r.text());
+            location.reload();
+        } catch (e) {
+            alert('Ошибка: ' + e.message);
+        }
+    }
+
+    async function updatePrice(input, productId) {
+        const newPrice = input.value;
+        if (newPrice < 0) return;
+
+        try {
+            const formData = new URLSearchParams();
+            formData.append('productId', productId);
+            formData.append('newPrice', newPrice);
+
+            const r = await fetch('/cart/price/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formData
+            });
+            
+            const res = await r.json();
+            if (!res.ok) {
+                alert(res.msg || 'Ошибка');
+                return;
+            }
+            
+            // Update UI (optional, or just reload)
+            // Ideally we should update the 'sum' cell.
+            // But reloading is safer to sync everything (totals etc).
+            // For smooth UX, let's update local values if possible.
+            
+            // Reload for correct total sum calculation
+             location.reload(); 
+             
+        } catch (e) {
+            alert('Ошибка обновления цены: ' + e.message);
+        }
+    }
 </script>
 </body>
 </html>
