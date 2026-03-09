@@ -149,15 +149,15 @@ public class CartSectionController {
     /** Назначить товары в раздел */
     @PostMapping("/assign")
     public Map<String,Object> assign(@RequestParam Long sectionId,
-                                     @RequestParam("productIds") List<Integer> productIds,
+                                     @RequestParam("productIds") List<Integer> productIds,     
                                      HttpSession s) {
         Map<Long,String> sec = sections(s);
         if (!sec.containsKey(sectionId)) return Map.of("ok", false, "msg", "Раздел не найден");
         Map<Integer, Long> ps = productSection(s);
         for (Integer pid : productIds) ps.put(pid, sectionId);
+        s.setAttribute(PRODUCT_SECTION, ps); // Force persist in session store
         return Map.of("ok", true);
     }
-
     @GetMapping("/tree")
     public List<Node> tree(HttpSession s) {
         Map<Long,String> sec = sections(s);

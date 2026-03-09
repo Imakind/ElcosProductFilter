@@ -811,6 +811,11 @@ public class ProductFilterController {
         return "cart";
     }
 
+    @GetMapping("/cart-new")
+    public String viewCartNew() {
+        return "cart-new";
+    }
+
     @PostMapping("/cart/coefficient")
     @ResponseBody
     public void updateCoefficient(@RequestParam("productId") Integer productId,
