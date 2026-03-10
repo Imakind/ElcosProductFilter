@@ -105,12 +105,18 @@ public class CartSectionController {
         return Map.of("id", id, "name", name, "parentId", p);
     }
 
-    /** Переименовать раздел */
-    @PutMapping("/{id}")
-    public Map<String,Object> rename(@PathVariable Long id, @RequestParam String name, HttpSession s) {
+    /** Переименовать раздел (POST для совместимости с JS) */
+    @PostMapping("/rename")
+    public Map<String,Object> renamePost(@RequestParam Long sectionId, @RequestParam String name, HttpSession s) {
         Map<Long,String> sec = sections(s);
-        if (sec.containsKey(id)) sec.put(id, name);
-        return Map.of("ok", true);
+        if (sec.containsKey(sectionId)) sec.put(sectionId, name);
+        return Map.of("ok", true, "id", sectionId, "name", name);
+    }
+
+    /** Удалить раздел (POST для совместимости с JS) */
+    @PostMapping("/delete")
+    public Map<String,Object> deletePost(@RequestParam Long sectionId, HttpSession s) {
+        return delete(sectionId, s);
     }
 
     /** Удалить раздел: дети и товары перепривязываются к его родителю */
@@ -250,29 +256,134 @@ public class CartSectionController {
 
         // Текущая корзина и коэффициенты в сессии
         Map<Integer, Integer> cart = (Map<Integer, Integer>) s.getAttribute("cart");
+        Map<Integer, Long> ps = productSection(s); 
+        Map<Integer, Map<Long, Integer>> splits = ensureProductSectionQty(s);
         Map<Integer, Double> coeff = (Map<Integer, Double>) s.getAttribute("coefficientMap");
-        Map<Integer, Long> ps = productSection(s); // productId -> sectionId (может не содержать id => считаем 1L)
 
         if (cart == null || cart.isEmpty()) {
             return Map.of("ok", true, "removed", List.of());
         }
 
-        List<Integer> removed = new ArrayList<>();
+        List<Integer> removedCompletely = new ArrayList<>();
 
-        // Чистим ТОЛЬКО товары из этой папки (без рекурсии по подпапкам)
+        // Проходим по всем товарам в корзине
         for (Integer pid : new ArrayList<>(cart.keySet())) {
-            Long sid = ps.get(pid);
-            if (sid == null) sid = 1L;          // не задано => «Общий»
-            if (Objects.equals(sid, sectionId)) {
-                cart.remove(pid);
-                if (coeff != null) coeff.remove(pid);
-                ps.remove(pid);                 // убираем и маппинг папки
-                removed.add(pid);
+            Map<Long, Integer> productSplits = splits.get(pid);
+            
+            if (productSplits != null && !productSplits.isEmpty()) {
+                // --- СЛУЧАЙ 1: Товар разделен по папкам ---
+                if (productSplits.containsKey(sectionId)) {
+                    int qtyInThisSection = productSplits.get(sectionId);
+                    int totalQty = cart.getOrDefault(pid, 0);
+                    int newTotal = Math.max(0, totalQty - qtyInThisSection);
+                    
+                    productSplits.remove(sectionId);
+                    
+                    if (newTotal <= 0) {
+                        // Товар удален полностью
+                        cart.remove(pid);
+                        ps.remove(pid);
+                        splits.remove(pid);
+                        if (coeff != null) coeff.remove(pid);
+                        removedCompletely.add(pid);
+                    } else {
+                        // Товар остается, но в меньшем количестве
+                        cart.put(pid, newTotal);
+                        
+                        // Если осталась только одна папка в сплитах — можно убрать из сплитов для чистоты,
+                        // но не обязательно. Главное — обновить доминирующую папку.
+                        Long dom = productSplits.entrySet().stream()
+                                .max(Comparator.comparingInt(Map.Entry::getValue))
+                                .map(Map.Entry::getKey).orElse(1L);
+                        ps.put(pid, dom);
+                    }
+                }
+            } else {
+                // --- СЛУЧАЙ 2: Товар в одной папке (обычный) ---
+                Long sid = ps.getOrDefault(pid, 1L);
+                if (Objects.equals(sid, sectionId)) {
+                    cart.remove(pid);
+                    ps.remove(pid);
+                    if (coeff != null) coeff.remove(pid);
+                    removedCompletely.add(pid);
+                }
             }
         }
 
-        return Map.of("ok", true, "removed", removed);
+        return Map.of("ok", true, "removed", removedCompletely);
     }
 
+    /** Разделение товара по папкам (для Alpine.js) */
+    @PostMapping("/extract-one")
+    public Map<String, Object> extractOne(@RequestParam Integer productId,
+                                          @RequestParam(required = false) Long fromSectionId,
+                                          @RequestParam Long toSectionId,
+                                          @RequestParam(defaultValue = "1") Integer qty,
+                                          HttpSession s) {
+        if (qty == null || qty <= 0) qty = 1;
 
+        @SuppressWarnings("unchecked")
+        Map<Integer, Integer> cart = (Map<Integer, Integer>) s.getAttribute("cart");
+        if (cart == null || !cart.containsKey(productId))
+            return Map.of("ok", false, "msg", "Товара нет в корзине");
+
+        int totalQty = cart.get(productId);
+        Map<Integer, Map<Long, Integer>> splits = ensureProductSectionQty(s);
+        
+        // --- FIX: Если это ПЕРВОЕ разделение товара, нужно зафиксировать его текущее положение ---
+        Map<Integer, Long> prodSec = productSection(s);
+        Long currentMainSection = prodSec.getOrDefault(productId, 1L);
+        
+        Map<Long, Integer> bySection = splits.get(productId);
+        if (bySection == null || bySection.isEmpty()) {
+            bySection = new HashMap<>();
+            bySection.put(currentMainSection, totalQty); // Весь товар в текущей папке
+            splits.put(productId, bySection);
+        }
+
+        Long from = (fromSectionId != null) ? fromSectionId : currentMainSection;
+
+        int assignedInFrom = bySection.getOrDefault(from, 0);
+        int need = qty;
+
+        if (assignedInFrom < need) {
+            return Map.of("ok", false, "msg", "В исходной папке недостаточно количества (есть " + assignedInFrom + ")");
+        }
+
+        // Вычитаем из исходной
+        bySection.put(from, assignedInFrom - need);
+        // Добавляем в целевую
+        bySection.merge(toSectionId, need, Integer::sum);
+        
+        // Чистим нули
+        bySection.entrySet().removeIf(e -> e.getValue() == null || e.getValue() <= 0);
+
+        // Обновляем доминирующую секцию (где больше всего товара)
+        int max = -1;
+        Long dom = currentMainSection;
+        for (var e : bySection.entrySet()) {
+            if (e.getValue() != null && e.getValue() > max) {
+                max = e.getValue();
+                dom = e.getKey();
+            }
+        }
+        prodSec.put(productId, dom);
+
+        return Map.of("ok", true, "splits", bySection);
+    }
+
+    @GetMapping("/splits")
+    public Map<Integer, Map<Long, Integer>> sectionSplits(HttpSession s) {
+        return ensureProductSectionQty(s);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<Integer, Map<Long, Integer>> ensureProductSectionQty(HttpSession s) {
+        Map<Integer, Map<Long, Integer>> m = (Map<Integer, Map<Long, Integer>>) s.getAttribute("productSectionQty");
+        if (m == null) {
+            m = new HashMap<>();
+            s.setAttribute("productSectionQty", m);
+        }
+        return m;
+    }
 }

@@ -50,6 +50,10 @@ public class CartApiController {
         Map<Integer, Long> productSection = (Map<Integer, Long>) session.getAttribute("productSection");
         if (productSection == null) productSection = new HashMap<>();
 
+        @SuppressWarnings("unchecked")
+        Map<Integer, Map<Long, Integer>> productSectionQty = (Map<Integer, Map<Long, Integer>>) session.getAttribute("productSectionQty");
+        if (productSectionQty == null) productSectionQty = new HashMap<>();
+
         // --- 4. Base Overrides ---
         @SuppressWarnings("unchecked")
         Map<Integer, Double> baseOverrideRaw = (Map<Integer, Double>) session.getAttribute("priceOverrideBaseMap");
@@ -68,35 +72,53 @@ public class CartApiController {
         List<Map<String, Object>> items = new ArrayList<>();
         for (Product p : products) {
             Integer pid = p.getProductId();
-            int qty = cart.getOrDefault(pid, 1);
+            int totalQty = cart.getOrDefault(pid, 0);
+            if (totalQty <= 0) continue;
+
             double coeff = coefficientMap.getOrDefault(pid, 1.0);
-            
-            // Resolve base price
-            double basePrice = 0.0;
-            if (baseOverride.containsKey(pid)) {
-                basePrice = baseOverride.get(pid);
-            } else if (p.getPrice() != null) {
-                basePrice = p.getPrice().doubleValue();
+            double basePrice = baseOverride.containsKey(pid) ? baseOverride.get(pid) : (p.getPrice() != null ? p.getPrice().doubleValue() : 0.0);
+
+            Map<Long, Integer> splits = productSectionQty.get(pid);
+            if (splits != null && !splits.isEmpty()) {
+                // Если есть разделение по папкам
+                for (Map.Entry<Long, Integer> entry : splits.entrySet()) {
+                    Long sid = entry.getKey();
+                    int sqty = entry.getValue();
+                    if (sqty <= 0) continue;
+
+                    items.add(createItemMap(p, pid, sqty, coeff, basePrice, sid));
+                }
+                
+                // Проверяем, осталось ли нераспределенное количество
+                int assigned = splits.values().stream().mapToInt(Integer::intValue).sum();
+                if (totalQty > assigned) {
+                    Long defSid = productSection.getOrDefault(pid, 1L);
+                    items.add(createItemMap(p, pid, totalQty - assigned, coeff, basePrice, defSid));
+                }
+            } else {
+                // Обычный товар в одной папке
+                Long sectionId = productSection.getOrDefault(pid, 1L);
+                items.add(createItemMap(p, pid, totalQty, coeff, basePrice, sectionId));
             }
-            
-            Long sectionId = productSection.getOrDefault(pid, 1L);
-
-            Map<String, Object> item = new HashMap<>();
-            item.put("id", pid);
-            item.put("name", p.getName());
-            item.put("brand", p.getBrand() != null ? p.getBrand().getBrandName() : "—");
-            item.put("article", p.getArticleCode());
-            item.put("folderId", sectionId);
-            item.put("qty", qty);
-            item.put("coeff", coeff);
-            item.put("basePrice", basePrice);
-            item.put("price", basePrice * coeff);
-
-            items.add(item);
         }
 
         Map<String, Object> response = new HashMap<>();
         response.put("items", items);
         return response;
+    }
+
+    private Map<String, Object> createItemMap(Product p, Integer pid, int qty, double coeff, double basePrice, Long sectionId) {
+        Map<String, Object> item = new HashMap<>();
+        item.put("id", pid + "_" + sectionId); 
+        item.put("productId", pid);
+        item.put("name", p.getName());
+        item.put("brand", p.getBrand() != null ? p.getBrand().getBrandName() : "—");
+        item.put("article", p.getArticleCode());
+        item.put("folderId", sectionId);
+        item.put("qty", qty);
+        item.put("coeff", coeff);
+        item.put("basePrice", basePrice);
+        item.put("price", basePrice * coeff);
+        return item;
     }
 }

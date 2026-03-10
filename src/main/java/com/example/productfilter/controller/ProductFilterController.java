@@ -550,96 +550,109 @@ public class ProductFilterController {
         productSection.putIfAbsent(productId, sid);   // ✅ фикс
     }
 
-    // === НОВОЕ: переименование секции («папки») ===
-    @PostMapping("/cart/sections/rename")
-    @ResponseBody
-    public Map<String, Object> renameSection(@RequestParam Long sectionId,
-                                             @RequestParam String name,
-                                             HttpSession s) {
-        if (name == null || name.isBlank()) {
-            return Map.of("ok", false, "msg", "Пустое имя");
-        }
-        Map<Long, String> sec = ensureSections(s);
-        if (!sec.containsKey(sectionId)) {
-            return Map.of("ok", false, "msg", "Секции нет");
-        }
-        sec.put(sectionId, name.trim());
-        s.setAttribute("sections", sec);
-        return Map.of("ok", true, "id", sectionId, "name", name.trim());
-    }
-
     @PostMapping("/cart/set-qty")
     @ResponseBody
     public Map<String, Object> setQuantity(@RequestParam Integer productId,
                                            @RequestParam Integer qty,
+                                           @RequestParam(required = false) Long sectionId,
                                            HttpSession s) {
         if (productId == null)
             return Map.of("ok", false, "msg", "Нет productId");
 
         @SuppressWarnings("unchecked")
         Map<Integer, Integer> cart = (Map<Integer, Integer>) s.getAttribute("cart");
-        if (cart == null || !cart.containsKey(productId)) {
-            return Map.of("ok", false, "msg", "Товар не в корзине");
-        }
+        if (cart == null) cart = new HashMap<>();
 
-        // ===== 🔥 УДАЛЕНИЕ ТОВАРА ПРИ qty <= 0 =====
-        if (qty == null || qty <= 0) {
+        // --- ЛОГИКА ДЛЯ СПЛИТОВ (НОВЫЙ UI) ---
+        if (sectionId != null && qty != null) {
+            Map<Integer, Map<Long, Integer>> splits = ensureProductSectionQty(s);
+            Map<Long, Integer> bySection = splits.computeIfAbsent(productId, k -> new HashMap<>());
+            
+            // Если товара еще нет в сплитах, инициализируем его текущим общим количеством
+            if (bySection.isEmpty() && cart.containsKey(productId)) {
+                Map<Integer, Long> prodSec = ensureProductSection(s);
+                Long currentMain = prodSec.getOrDefault(productId, 1L);
+                bySection.put(currentMain, cart.get(productId));
+            }
+            
+            if (qty > 0) {
+                // Обновляем количество в конкретной секции
+                bySection.put(sectionId, qty);
+            } else {
+                // Удаляем товар из конкретной секции
+                bySection.remove(sectionId);
+            }
+            
+            // Вычисляем новое ОБЩЕЕ количество для этого товара
+            int newTotal = bySection.values().stream().mapToInt(v -> v == null ? 0 : v).sum();
+            
+            if (newTotal > 0) {
+                cart.put(productId, newTotal);
+                s.setAttribute("cart", cart);
+                // Обновляем доминирующую секцию (где больше всего товара)
+                updateDominantSection(s, productId, bySection);
+            } else {
+                // Удаляем товар полностью, если общее количество стало 0
+                cart.remove(productId);
+                s.setAttribute("cart", cart);
+                ensureProductSection(s).remove(productId);
+                splits.remove(productId);
+                Map<Integer, Double> coeff = (Map<Integer, Double>) s.getAttribute("coefficientMap");
+                if (coeff != null) coeff.remove(productId);
+                Object scoped = s.getAttribute("scopedTarget.cartStore");
+                if (scoped instanceof com.example.productfilter.service.CartStore cs) {
+                    cs.remove(productId);
+                }
+                return Map.of("ok", true, "removed", true, "productId", productId);
+            }
+        } else if (qty == null || qty <= 0) {
+            // ===== 🔥 УДАЛЕНИЕ ТОВАРА (БЕЗ УКАЗАНИЯ СЕКЦИИ) =====
             cart.remove(productId);
             s.setAttribute("cart", cart);
 
             ensureProductSection(s).remove(productId);
             ensureProductSectionQty(s).remove(productId);
 
-            Map<Integer, Double> coeff =
-                    (Map<Integer, Double>) s.getAttribute("coefficientMap");
+            Map<Integer, Double> coeff = (Map<Integer, Double>) s.getAttribute("coefficientMap");
             if (coeff != null) coeff.remove(productId);
 
-            // удалить виртуальный, если это виртуальный
             Object scoped = s.getAttribute("scopedTarget.cartStore");
             if (scoped instanceof com.example.productfilter.service.CartStore cs) {
                 cs.remove(productId);
             }
 
-            return Map.of(
-                    "ok", true,
-                    "removed", true,
-                    "productId", productId
-            );
-        }
+            return Map.of("ok", true, "removed", true, "productId", productId);
+        } else {
+            // --- СТАРАЯ ЛОГИКА (БЕЗ УКАЗАНИЯ СЕКЦИИ И qty > 0) ---
+            cart.put(productId, qty);
+            s.setAttribute("cart", cart);
 
-        // ===== если qty > 0 — обычная логика =====
-        cart.put(productId, qty);
-        s.setAttribute("cart", cart);
-
-
-        // ужать разбиения по секциям, если они больше нового qty
-        Map<Integer, Map<Long, Integer>> splits = ensureProductSectionQty(s);
-        Map<Long, Integer> bySection = splits.get(productId);
-        if (bySection != null && !bySection.isEmpty()) {
-            int assigned = bySection.values().stream().mapToInt(v -> v == null ? 0 : v).sum();
-            if (assigned > qty) {
-                int rest = qty;
-                Long dominant = bySection.entrySet().stream()
-                        .max(Comparator.comparingInt(e -> e.getValue() == null ? 0 : e.getValue()))
-                        .map(Map.Entry::getKey).orElse(null);
-                Map<Long, Integer> resized = new LinkedHashMap<>();
-                for (var e : bySection.entrySet()) {
-                    int v = e.getValue() == null ? 0 : e.getValue();
-                    int nv = (int) Math.floor((v * 1.0 * qty) / Math.max(1, assigned));
-                    resized.put(e.getKey(), nv);
-                    rest -= nv;
+            Map<Integer, Map<Long, Integer>> splits = ensureProductSectionQty(s);
+            Map<Long, Integer> bySection = splits.get(productId);
+            if (bySection != null && !bySection.isEmpty()) {
+                int assigned = bySection.values().stream().mapToInt(v -> v == null ? 0 : v).sum();
+                if (assigned > qty) {
+                    int rest = qty;
+                    Long dominant = bySection.entrySet().stream()
+                            .max(Comparator.comparingInt(e -> e.getValue() == null ? 0 : e.getValue()))
+                            .map(Map.Entry::getKey).orElse(null);
+                    for (var e : bySection.entrySet()) {
+                        int v = e.getValue() == null ? 0 : e.getValue();
+                        int nv = (int) Math.floor((v * 1.0 * qty) / assigned);
+                        e.setValue(nv);
+                        rest -= nv;
+                    }
+                    if (dominant != null && rest > 0) {
+                        bySection.put(dominant, bySection.get(dominant) + rest);
+                    }
+                    bySection.entrySet().removeIf(x -> x.getValue() == null || x.getValue() <= 0);
+                    if (bySection.isEmpty()) splits.remove(productId);
                 }
-                if (dominant != null && rest > 0) {
-                    resized.merge(dominant, rest, Integer::sum);
-                }
-                resized.entrySet().removeIf(x -> x.getValue() == null || x.getValue() <= 0);
-                if (resized.isEmpty()) splits.remove(productId);
-                else splits.put(productId, resized);
-                s.setAttribute(PRODUCT_SECTION_QTY, splits);
             }
         }
 
-        // расчёт цен
+        // расчет цен
+        @SuppressWarnings("unchecked")
         Map<Integer, Double> coeff = (Map<Integer, Double>) s.getAttribute("coefficientMap");
         if (coeff == null) coeff = new HashMap<>();
 
@@ -658,7 +671,6 @@ public class ProductFilterController {
             Map<?, Double> baseOverrideRaw = (Map<?, Double>) s.getAttribute("priceOverrideBaseMap");
             Map<Integer, Double> baseOverride = normalizeMapDouble(baseOverrideRaw);
 
-
             double base = resolveBasePrice(p, p.getProductId(), baseOverride);
             double k = coeff.getOrDefault(p.getProductId(), 1.0);
             double unit = base * k;
@@ -672,12 +684,20 @@ public class ProductFilterController {
         return Map.of(
                 "ok", true,
                 "productId", productId,
-                "qty", qty,
+                "qty", cart.getOrDefault(productId, 0),
                 "unitPrice", unitPrices.getOrDefault(productId, 0.0),
                 "lineSum", lineSums.getOrDefault(productId, 0.0),
                 "totalQty", totalQty,
                 "totalSum", totalSum
         );
+    }
+
+    private void updateDominantSection(HttpSession s, Integer productId, Map<Long, Integer> bySection) {
+        if (bySection == null || bySection.isEmpty()) return;
+        Long dom = bySection.entrySet().stream()
+                .max(Comparator.comparingInt(e -> e.getValue() == null ? 0 : e.getValue()))
+                .map(Map.Entry::getKey).orElse(1L);
+        ensureProductSection(s).put(productId, dom);
     }
 
     // =========================
@@ -2100,12 +2120,6 @@ public class ProductFilterController {
         return m;
     }
 
-    @GetMapping("/cart/sections/splits")
-    @ResponseBody
-    public Map<Integer, Map<Long, Integer>> sectionSplits(HttpSession s) {
-        return ensureProductSectionQty(s);
-    }
-
     @SuppressWarnings("unchecked")
     private Map<Long, Long> ensureSectionParents(HttpSession s) {
         Map<Long, Long> parents = (Map<Long, Long>) s.getAttribute("sectionParent");
@@ -2130,57 +2144,5 @@ public class ProductFilterController {
                 .map(Map.Entry::getKey)
                 .findFirst()
                 .orElse(1L);
-    }
-
-    @PostMapping("/cart/sections/extract-one")
-    @ResponseBody
-    public Map<String,Object> extractOne(@RequestParam Integer productId,
-                                         @RequestParam(required=false) Long fromSectionId,
-                                         @RequestParam Long toSectionId,
-                                         @RequestParam(defaultValue="1") Integer qty,
-                                         HttpSession s) {
-        if (qty == null || qty <= 0) qty = 1;
-
-        @SuppressWarnings("unchecked")
-        Map<Integer,Integer> cart = (Map<Integer,Integer>) s.getAttribute("cart");
-        if (cart == null || !cart.containsKey(productId))
-            return Map.of("ok", false, "msg", "Товара нет в корзине");
-
-        int totalQty = cart.get(productId);
-        Map<Integer, Map<Long,Integer>> splits = ensureProductSectionQty(s);
-        Map<Long,Integer> bySection = splits.computeIfAbsent(productId, k -> new HashMap<>());
-
-        Map<Integer, Long> prodSec = ensureProductSection(s);
-        Long from = (fromSectionId != null) ? fromSectionId : prodSec.getOrDefault(productId, findRootId(s));
-
-        int assignedInFrom = bySection.getOrDefault(from, 0);
-        int assignedTotal  = bySection.values().stream().mapToInt(Integer::intValue).sum();
-        int free           = Math.max(0, totalQty - assignedTotal);
-
-        int need = qty;
-
-        int fromTaken = Math.min(assignedInFrom, need);
-        if (fromTaken > 0) bySection.put(from, assignedInFrom - fromTaken);
-        need -= fromTaken;
-
-        int freeTaken = Math.min(free, need);
-        need -= freeTaken;
-
-        if (need > 0) {
-            if (fromTaken > 0) bySection.put(from, assignedInFrom);
-            return Map.of("ok", false, "msg", "Недостаточно количества для извлечения");
-        }
-
-        bySection.merge(toSectionId, qty, Integer::sum);
-        bySection.entrySet().removeIf(e -> e.getValue() == null || e.getValue() <= 0);
-        if (bySection.isEmpty()) splits.remove(productId);
-
-        int max = -1; Long dom = prodSec.getOrDefault(productId, 1L);
-        for (var e : bySection.entrySet()) {
-            if (e.getValue() > max) { max = e.getValue(); dom = e.getKey(); }
-        }
-        prodSec.put(productId, dom);
-
-        return Map.of("ok", true, "splits", bySection);
     }
 }

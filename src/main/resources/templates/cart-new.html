@@ -151,6 +151,11 @@
         .main-content {
             padding-bottom: 100px; /* Отступ для нижней панели */
         }
+
+        /* Принудительный вывод выпадающих меню на передний план */
+        .dropdown-menu.show {
+            z-index: 9999 !important;
+        }
     </style>
 </head>
 <!-- Инициализация Alpine.js -->
@@ -210,19 +215,19 @@
                                 <template x-for="folder in folders" :key="folder.id">
                                     <div class="folder-item" 
                                          :class="{'active': activeFolderId === folder.id}"
+                                         :style="'padding-left: ' + (folder.level * 20 + 15) + 'px'"
                                          @click="selectFolder(folder.id)"
                                          @dragover="onDragOver($event)"
                                          @drop="onDrop($event, folder.id)">
-                                        <div>
+                                        <div class="text-truncate">
                                             <i class="bi me-2 text-warning" :class="activeFolderId === folder.id ? 'bi-folder2-open' : 'bi-folder2'"></i> 
                                             <span x-text="folder.name"></span>
                                         </div>
                                         <div class="d-flex align-items-center">
                                             <span class="badge bg-secondary rounded-pill me-2" x-text="getFolderItemCount(folder.id)"></span>
                                             
-                                            <!-- Dropdown меню (Вместо правого клика) -->
                                             <div class="dropdown" @click.stop>
-                                                <button class="btn btn-sm btn-link text-muted p-0" data-bs-toggle="dropdown">
+                                                <button class="btn btn-sm btn-link text-muted p-0" data-bs-toggle="dropdown" data-bs-popper-config='{"strategy":"fixed"}'>
                                                     <i class="bi bi-three-dots-vertical"></i>
                                                 </button>
                                                 <ul class="dropdown-menu dropdown-menu-dark shadow">
@@ -303,7 +308,7 @@
                                                 <td class="text-end fw-bold" x-text="formatMoney(p.price * p.qty)"></td>
                                                 <td>
                                                     <div class="dropdown">
-                                                        <button class="btn btn-sm btn-link text-muted p-0" data-bs-toggle="dropdown">
+                                                        <button class="btn btn-sm btn-link text-muted p-0" data-bs-toggle="dropdown" data-bs-popper-config='{"strategy":"fixed"}'>
                                                             <i class="bi bi-three-dots-vertical"></i>
                                                         </button>
                                                         <ul class="dropdown-menu dropdown-menu-dark shadow">

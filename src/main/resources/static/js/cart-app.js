@@ -33,13 +33,8 @@ document.addEventListener('alpine:init', () => {
         async init() {
             this.isLoading = true;
             try {
-                // Fetch folders
-                const foldersData = await this.api('/cart/sections');
-                if (Array.isArray(foldersData) && foldersData.length > 0) {
-                    this.folders = foldersData;
-                } else {
-                    this.folders = [{ id: 1, name: 'Общий раздел' }];
-                }
+                // Fetch folders tree
+                await this.loadFolders();
 
                 await this.loadCartItems();
 
@@ -51,7 +46,7 @@ document.addEventListener('alpine:init', () => {
             } catch (err) {
                 console.error("Failed to load cart data:", err);
                 // Fallback UI
-                this.folders = [{ id: 1, name: 'Общий раздел (Ошибка загрузки)' }];
+                this.folders = [{ id: 1, name: 'Общий раздел (Ошибка загрузки)', level: 0 }];
             } finally {
                 this.isLoading = false;
             }
@@ -62,6 +57,21 @@ document.addEventListener('alpine:init', () => {
             if (cartData && cartData.items) {
                 this.products = cartData.items;
             }
+        },
+
+        flattenTree(nodes, level = 0) {
+            let result = [];
+            nodes.forEach(node => {
+                result.push({ 
+                    id: node.id, 
+                    name: node.name, 
+                    level: level 
+                });
+                if (node.children && node.children.length > 0) {
+                    result = result.concat(this.flattenTree(node.children, level + 1));
+                }
+            });
+            return result;
         },
 
         // --- ВЫЧИСЛЯЕМЫЕ СВОЙСТВА (Getters) ---
@@ -92,33 +102,40 @@ document.addEventListener('alpine:init', () => {
         },
 
         async changeQty(product, amount) {
-            const newQty = (Number(product.qty) || 0) + amount;
-            if (newQty >= 0) {
-                product.qty = newQty;
-                await this.syncQty(product.id, newQty);
-                if (newQty === 0) {
+            const newRowQty = (Number(product.qty) || 0) + amount;
+            if (newRowQty >= 0) {
+                // ВАЖНО: Мы отправляем серверу КОЛИЧЕСТВО В ЭТОЙ ПАПКЕ,
+                // а сервер сам пересчитает общий остаток в корзине.
+                await this.syncQty(product.productId, newRowQty, product.folderId);
+                
+                if (newRowQty === 0) {
                     this.removeProductFromState(product.id);
                 }
+                await this.loadCartItems();
             }
         },
 
         async updateQtyDirectly(product) {
-            let newQty = Number(product.qty) || 0;
-            if (newQty < 0) {
-                newQty = 0;
+            let newRowQty = Number(product.qty) || 0;
+            if (newRowQty < 0) {
+                newRowQty = 0;
                 product.qty = 0;
             }
-            await this.syncQty(product.id, newQty);
-            if (newQty === 0) {
+            await this.syncQty(product.productId, newRowQty, product.folderId);
+            
+            if (newRowQty === 0) {
                 this.removeProductFromState(product.id);
             }
+            await this.loadCartItems();
         },
 
-        async syncQty(productId, qty) {
+        async syncQty(productId, qty, sectionId = null) {
             try {
                 const params = new URLSearchParams();
                 params.set('productId', productId);
                 params.set('qty', qty);
+                if (sectionId) params.set('sectionId', sectionId);
+
                 await this.api('/cart/set-qty', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -129,13 +146,21 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        async removeProduct(productId) {
-            await this.syncQty(productId, 0);
-            this.removeProductFromState(productId);
+        async removeProduct(id) {
+            let pid = id;
+            let sid = null;
+            if (typeof id === 'string' && id.includes('_')) {
+                const parts = id.split('_');
+                pid = parts[0];
+                sid = parts[1];
+            }
+            await this.syncQty(pid, 0, sid);
+            this.removeProductFromState(id);
+            await this.loadCartItems();
         },
 
-        removeProductFromState(productId) {
-            this.products = this.products.filter(p => p.id !== productId);
+        removeProductFromState(id) {
+            this.products = this.products.filter(p => p.id !== id);
         },
 
         selectFolder(id) {
@@ -230,9 +255,12 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        async moveProductToFolder(productId, folderIdStr) {
+        async moveProductToFolder(id, folderIdStr) {
             try {
                 const folderId = Number(folderIdStr);
+                // Извлекаем productId из составного id
+                const productId = typeof id === 'string' && id.includes('_') ? id.split('_')[0] : id;
+                
                 const params = new URLSearchParams();
                 params.append('productIds', String(productId));
                 params.set('sectionId', folderId);
@@ -242,13 +270,7 @@ document.addEventListener('alpine:init', () => {
                     body: params
                 });
 
-                // Update local state directly for snappy UI
-                this.products = this.products.map(p => {
-                    if (p.id === productId) {
-                        return { ...p, folderId: folderId };
-                    }
-                    return p;
-                });
+                await this.loadCartItems();
             } catch (err) {
                 console.error("Failed to move product:", err);
                 await this.loadCartItems(); // reload if failed
@@ -256,8 +278,8 @@ document.addEventListener('alpine:init', () => {
         },
 
         // --- Drag & Drop ---
-        onDragStart(event, productId) {
-            event.dataTransfer.setData('text/product-id', String(productId));
+        onDragStart(event, id) {
+            event.dataTransfer.setData('text/product-composite-id', String(id));
             event.dataTransfer.effectAllowed = 'move';
         },
 
@@ -268,9 +290,9 @@ document.addEventListener('alpine:init', () => {
 
         async onDrop(event, folderId) {
             event.preventDefault();
-            const productId = event.dataTransfer.getData('text/product-id');
-            if (productId) {
-                await this.moveProductToFolder(Number(productId), folderId);
+            const id = event.dataTransfer.getData('text/product-composite-id');
+            if (id) {
+                await this.moveProductToFolder(id, folderId);
             }
         },
 
@@ -291,7 +313,7 @@ document.addEventListener('alpine:init', () => {
                 // Since the backend might not have a bulk endpoint, we do it in a loop
                 for (const p of itemsInFolder) {
                     const params = new URLSearchParams();
-                    params.set('productId', p.id);
+                    params.set('productId', p.productId);
                     params.set('coefficient', coeff);
                     await this.api('/cart/coefficient', {
                         method: 'POST',
@@ -335,7 +357,7 @@ document.addEventListener('alpine:init', () => {
 
             try {
                 const params = new URLSearchParams();
-                params.set('productId', product.id);
+                params.set('productId', product.productId);
                 params.set('qty', splitQty);
                 params.set('fromSectionId', product.folderId);
                 params.set('toSectionId', targetFolderId);
@@ -361,7 +383,7 @@ document.addEventListener('alpine:init', () => {
 
             try {
                 const params = new URLSearchParams();
-                params.set('productId', product.id);
+                params.set('productId', product.productId);
                 params.set('newPrice', newPrice);
                 await this.api('/cart/price/update', {
                     method: 'POST',
@@ -409,17 +431,31 @@ document.addEventListener('alpine:init', () => {
 
         async loadFolders() {
             try {
-                const foldersData = await this.api('/cart/sections');
-                if (Array.isArray(foldersData) && foldersData.length > 0) {
-                    // Flatten the tree for simple rendering if needed, or keep as is.
-                    // Assuming API returns flat list or we can render it.
-                    this.folders = foldersData;
+                const treeData = await this.api('/cart/sections/tree');
+                if (Array.isArray(treeData) && treeData.length > 0) {
+                    this.folders = this.flattenTree(treeData);
                 } else {
-                    this.folders = [{ id: 1, name: 'Общий раздел' }];
+                    this.folders = [{ id: 1, name: 'Общий раздел', level: 0 }];
                 }
             } catch(e) {
                  console.error("Failed to load folders:", e);
+                 this.folders = [{ id: 1, name: 'Общий раздел', level: 0 }];
             }
-        }
+        },
+
+        flattenTree(nodes, level = 0) {
+            let result = [];
+            nodes.forEach(node => {
+                result.push({ 
+                    id: node.id, 
+                    name: node.name, 
+                    level: level 
+                });
+                if (node.children && node.children.length > 0) {
+                    result = result.concat(this.flattenTree(node.children, level + 1));
+                }
+            });
+            return result;
+        },
     }));
 });
