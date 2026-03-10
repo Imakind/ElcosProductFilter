@@ -241,7 +241,8 @@
                 </ul>
 
                 <div>
-                    <button class="btn btn-outline-secondary btn-sm me-2"><i class="bi bi-bookmark"></i> Сохранить черновик</button>
+                    <button class="btn btn-outline-secondary btn-sm me-2" data-bs-toggle="offcanvas" data-bs-target="#draftsOffcanvas"><i class="bi bi-journal-bookmark"></i> Мои черновики</button>
+                    <button class="btn btn-outline-success btn-sm me-2" data-bs-toggle="modal" data-bs-target="#uploadEstimateModal"><i class="bi bi-upload"></i> Загрузить смету</button>
                     <a href="/" class="btn btn-outline-light btn-sm"><i class="bi bi-arrow-left"></i> В каталог</a>
                 </div>
             </div>
@@ -313,14 +314,41 @@
                                     <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#addSMRModal">
                                         <i class="bi bi-plus-circle"></i> Добавить СМР/Услугу
                                     </button>
-                                    <input type="text" class="form-control form-control-sm dark-input" placeholder="Поиск в разделе...">
+                                    <input type="text" class="form-control form-control-sm dark-input" x-model="searchQuery" placeholder="Поиск в разделе...">
                                 </div>
+                            </div>
+                            
+                            <!-- Панель массовых действий -->
+                            <div class="d-flex align-items-center gap-2 mb-3 p-2 rounded" style="background-color: var(--bg-hover);" x-show="selectedProducts.length > 0">
+                                <span class="text-white-50 small me-2">Выбрано: <strong x-text="selectedProducts.length"></strong></span>
+                                
+                                <select class="form-select form-select-sm dark-input w-auto" x-model="bulkTargetFolder">
+                                    <option value="">-- Выберите папку --</option>
+                                    <template x-for="f in folders" :key="f.id">
+                                        <option :value="f.id" x-text="f.name"></option>
+                                    </template>
+                                </select>
+                                <button class="btn btn-sm btn-outline-primary" @click="bulkMove()" :disabled="!bulkTargetFolder">Перенести</button>
+                                
+                                <div class="vr mx-1"></div>
+                                
+                                <div class="input-group input-group-sm w-auto">
+                                    <input type="number" class="form-control dark-input" placeholder="Коэфф." style="width: 80px;" step="0.01" min="0" x-model="bulkCoeff">
+                                    <button class="btn btn-outline-primary" @click="bulkApplyCoeff()" :disabled="!bulkCoeff">Применить</button>
+                                </div>
+
+                                <div class="vr mx-1"></div>
+                                
+                                <button class="btn btn-sm btn-outline-danger ms-auto" @click="bulkDelete()"><i class="bi bi-trash"></i> Удалить</button>
                             </div>
 
                             <div class="table-responsive">
                                 <table class="table modern-table table-hover">
                                     <thead>
                                         <tr>
+                                            <th style="width: 20px;">
+                                                <input class="form-check-input" type="checkbox" @change="toggleAll($event)">
+                                            </th>
                                             <th style="width: 20px;"></th>
                                             <th>Наименование</th>
                                             <th>Папка</th>
@@ -333,7 +361,10 @@
                                     <tbody>
                                         <!-- Товары рендерятся через Alpine -->
                                         <template x-for="p in activeFolderProducts" :key="p.id">
-                                            <tr draggable="true" @dragstart="onDragStart($event, p.id)" style="cursor: grab;">
+                                            <tr draggable="true" @dragstart="onDragStart($event, p.id)" style="cursor: grab;" :class="{'bg-secondary bg-opacity-10': selectedProducts.includes(p.id)}">
+                                                <td>
+                                                    <input class="form-check-input" type="checkbox" :value="p.id" x-model="selectedProducts">
+                                                </td>
                                                 <td class="text-muted" title="Потяните, чтобы переместить в другую папку">
                                                     <i class="bi bi-grip-vertical"></i>
                                                 </td>
@@ -621,7 +652,10 @@
 
                     <div class="d-grid gap-3">
                         <!-- Действия с корзиной -->
-                        <a href="/cart/excel" class="btn btn-success btn-lg"><i class="bi bi-file-earmark-excel me-2"></i>Выгрузить смету в Excel</a>
+                        <div class="d-flex gap-2">
+                            <a href="/cart/excel" class="btn btn-success btn-lg flex-fill"><i class="bi bi-file-earmark-excel me-2"></i>Смета (по папкам)</a>
+                            <a href="/cart/excel-spec" class="btn btn-success btn-lg flex-fill"><i class="bi bi-file-earmark-spreadsheet me-2"></i>Спецификация (общая)</a>
+                        </div>
                         
                         <form method="post" action="/cart/confirm" class="d-grid">
                             <input type="hidden" th:name="${_csrf != null ? _csrf.parameterName : '_csrf'}" th:value="${_csrf != null ? _csrf.token : ''}" />
@@ -630,8 +664,9 @@
                         
                         <hr class="border-secondary my-2">
                         
-                        <form method="post" action="/cart/save-estimate" class="d-grid gap-2 p-3 border border-secondary rounded">
+                        <form method="post" action="/cart/save-estimate" class="d-grid gap-2 p-3 border border-secondary rounded" @submit="prepareSaveDraft($event)">
                             <input type="hidden" th:name="${_csrf != null ? _csrf.parameterName : '_csrf'}" th:value="${_csrf != null ? _csrf.token : ''}" />
+                            <input type="hidden" name="folderMappingJson" x-model="folderMappingJsonStr" />
                             <h6 class="mb-2">Сохранить черновик в историю</h6>
                             <input name="projectName" type="text" class="form-control dark-input" placeholder="Название проекта" required />
                             <button type="submit" class="btn btn-outline-light"><i class="bi bi-save me-2"></i>Сохранить</button>
@@ -689,6 +724,68 @@
                 <div class="modal-footer" style="border-top: 1px solid #374151;">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                     <button type="button" class="btn btn-primary" @click="addSMR()">Добавить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для загрузки Excel сметы -->
+    <div class="modal fade text-white" id="uploadEstimateModal" tabindex="-1" aria-labelledby="uploadEstimateModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content bg-dark" style="border: 1px solid #374151;">
+                <div class="modal-header" style="border-bottom: 1px solid #374151;">
+                    <h5 class="modal-title" id="uploadEstimateModalLabel">Загрузить смету</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="post" action="/cart/upload-structured-estimate" enctype="multipart/form-data">
+                    <input type="hidden" th:name="${_csrf != null ? _csrf.parameterName : '_csrf'}" th:value="${_csrf != null ? _csrf.token : ''}" />
+                    <div class="modal-body">
+                        <input type="file" name="file" class="form-control dark-input mb-2" accept=".xlsx" required>
+                        <small class="text-muted">
+                            Загрузите файл, созданный через «Выгрузить смету (Excel)».
+                        </small>
+                    </div>
+                    <div class="modal-footer" style="border-top: 1px solid #374151;">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                        <button type="submit" class="btn btn-success">Загрузить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Offcanvas для черновиков (Истории) -->
+    <div class="offcanvas offcanvas-end text-bg-dark" tabindex="-1" id="draftsOffcanvas" aria-labelledby="draftsOffcanvasLabel" style="border-left: 1px solid var(--border-color); background-color: var(--bg-panel) !important;">
+        <div class="offcanvas-header border-bottom border-secondary">
+            <h5 class="offcanvas-title" id="draftsOffcanvasLabel"><i class="bi bi-journal-bookmark me-2"></i>Мои черновики</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body">
+            <div th:if="${proposalHistory == null or proposalHistory.isEmpty()}" class="text-center text-muted mt-5">
+                <i class="bi bi-inbox fs-1 d-block mb-3"></i>
+                <p>У вас пока нет сохраненных черновиков.</p>
+                <small>Сохраните текущую смету на вкладке "Итоги и Экспорт".</small>
+            </div>
+            
+            <div class="list-group list-group-flush gap-2" th:if="${proposalHistory != null and !proposalHistory.isEmpty()}">
+                <div class="list-group-item bg-dark border border-secondary rounded p-3 text-white" th:each="p : ${proposalHistory}">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h6 class="mb-0 text-info text-truncate" th:text="${p.name}" style="max-width: 70%;" title="Название проекта"></h6>
+                        <small class="text-muted" th:text="${p.formattedTimestamp}"></small>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between align-items-end mt-3">
+                        <div>
+                            <span class="badge bg-secondary">
+                                <i class="bi bi-box-seam me-1"></i> Смета
+                            </span>
+                        </div>
+                        <form method="post" action="/cart/load-estimate" class="m-0">
+                            <input type="hidden" th:name="${_csrf != null ? _csrf.parameterName : '_csrf'}" th:value="${_csrf != null ? _csrf.token : ''}" />
+                            <input type="hidden" name="proposalId" th:value="${p.id}" />
+                            <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bi bi-folder2-open me-1"></i>Открыть</button>
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>

@@ -706,7 +706,7 @@ public class ProductFilterController {
     // ВСТАВЬ ЭТИ МЕТОДЫ В ТВОЙ СУЩЕСТВУЮЩИЙ КОНТРОЛЛЕР (где уже есть productRepo/parameterRepo/...)
 // НИЧЕГО НЕ ВЫНОСИМ В CartController. Это просто готовые методы + хелперы.
 
-    @GetMapping("/cart")
+    @GetMapping("/cart-old")
     public String viewCart(Model model, HttpSession session, HttpServletResponse resp) {
         resp.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
         resp.setHeader("Pragma", "no-cache");
@@ -831,8 +831,11 @@ public class ProductFilterController {
         return "cart";
     }
 
-    @GetMapping("/cart-new")
-    public String viewCartNew() {
+    @GetMapping("/cart")
+    public String viewCartNew(Model model, HttpSession session) {
+        String sessionId = session.getId();
+        List<ProposalHistoryView> history = proposalRepo.findEstimateHistoryBySessionId(sessionId);
+        model.addAttribute("proposalHistory", history);
         return "cart-new";
     }
 
@@ -1424,6 +1427,132 @@ public class ProductFilterController {
         }
     }
 
+    @GetMapping("/cart/excel-spec")
+    public void downloadCartExcelSpec(HttpServletResponse response, HttpSession session) throws IOException {
+
+        Map<Integer, Integer> cart = cartStore.getQuantities();
+
+        if (cart == null || cart.isEmpty()) {
+            cart = (Map<Integer, Integer>) session.getAttribute("cart");
+        }
+
+        if (cart == null || cart.isEmpty()) {
+            response.sendRedirect("/cart");
+            return;
+        }
+
+        Map<Integer, Double> coefficientMap =
+                (Map<Integer, Double>) session.getAttribute("coefficientMap");
+        if (coefficientMap == null) coefficientMap = new HashMap<>();
+
+        @SuppressWarnings("unchecked")
+        Map<Integer, Double> baseOverride =
+                (Map<Integer, Double>) session.getAttribute("priceOverrideBaseMap");
+
+        List<Product> products = productRepo.findAllById(cart.keySet());
+
+        String fname = "specification.xlsx";
+
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setHeader("Content-Disposition",
+                "attachment; filename=\"" + fname + "\"");
+
+        try (Workbook wb = new XSSFWorkbook();
+             OutputStream out = response.getOutputStream()) {
+
+            Sheet sh = wb.createSheet("Спецификация");
+
+            // Стиль для заголовка
+            CellStyle headerStyle = wb.createCellStyle();
+            Font headerFont = wb.createFont();
+            headerFont.setBold(true);
+            headerStyle.setFont(headerFont);
+            headerStyle.setAlignment(HorizontalAlignment.CENTER);
+            headerStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+
+            // Стиль для денег
+            DataFormat format = wb.createDataFormat();
+            CellStyle priceStyle = wb.createCellStyle();
+            priceStyle.setDataFormat(format.getFormat("# ##0.00"));
+
+            Row header = sh.createRow(0);
+            String[] cols = {
+                    "№",
+                    "Наименование",
+                    "Артикул",
+                    "Бренд",
+                    "Ед. изм.",
+                    "Кол-во",
+                    "Цена за ед. (тг)",
+                    "Сумма (тг)"
+            };
+
+            for (int i = 0; i < cols.length; i++) {
+                Cell c = header.createCell(i);
+                c.setCellValue(cols[i]);
+                c.setCellStyle(headerStyle);
+            }
+
+            int r = 1;
+            int index = 1;
+            double grandTotal = 0.0;
+
+            for (Product p : products) {
+                int qty = cart.getOrDefault(p.getProductId(), 0);
+                if (qty <= 0) continue;
+
+                double base =
+                        (baseOverride != null && baseOverride.containsKey(p.getProductId()))
+                                ? Optional.ofNullable(baseOverride.get(p.getProductId())).orElse(0.0)
+                                : (p.getPrice() != null ? p.getPrice().doubleValue() : 0.0);
+
+                double k = coefficientMap.getOrDefault(p.getProductId(), 1.0);
+                double finalPrice = base * k;
+                double sum = qty * finalPrice;
+
+                Row row = sh.createRow(r++);
+                int c = 0;
+
+                row.createCell(c++).setCellValue(index++);
+                row.createCell(c++).setCellValue(p.getName());
+                row.createCell(c++).setCellValue(p.getArticleCode() != null ? p.getArticleCode() : "");
+                row.createCell(c++).setCellValue(p.getBrand() != null ? p.getBrand().getBrandName() : "");
+                row.createCell(c++).setCellValue("шт.");
+                row.createCell(c++).setCellValue(qty);
+
+                Cell priceCell = row.createCell(c++);
+                priceCell.setCellValue(finalPrice);
+                priceCell.setCellStyle(priceStyle);
+
+                Cell sumCell = row.createCell(c++);
+                sumCell.setCellValue(sum);
+                sumCell.setCellStyle(priceStyle);
+
+                grandTotal += sum;
+            }
+
+            // Итоговая строка
+            Row totalRow = sh.createRow(r);
+            totalRow.createCell(6).setCellValue("ИТОГО:");
+            totalRow.getCell(6).setCellStyle(headerStyle);
+
+            Cell grandTotalCell = totalRow.createCell(7);
+            grandTotalCell.setCellValue(grandTotal);
+            
+            CellStyle grandTotalStyle = wb.createCellStyle();
+            grandTotalStyle.cloneStyleFrom(priceStyle);
+            grandTotalStyle.setFont(headerFont);
+            grandTotalCell.setCellStyle(grandTotalStyle);
+
+            // Автоширина колонок
+            for (int i = 0; i < cols.length; i++) {
+                sh.autoSizeColumn(i);
+            }
+
+            wb.write(out);
+        }
+    }
+
     @PostMapping("/cart/upload-structured-estimate")
     public String uploadStructuredEstimate(@RequestParam("file") MultipartFile file,
                                            HttpSession session,
@@ -1505,7 +1634,7 @@ public class ProductFilterController {
             return "redirect:/cart";
         }
 
-        if (sections.isEmpty()) {
+        if (!sections.containsKey(1L)) {
             sections.put(1L, "Общий");
             parents.put(1L, null);
         }

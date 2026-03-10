@@ -7,6 +7,14 @@ document.addEventListener('alpine:init', () => {
         isLoading: true,
         smrName: '',
         smrPrice: '',
+        searchQuery: '',
+        
+        // Массовые действия
+        selectedProducts: [],
+        bulkTargetFolder: '',
+        bulkCoeff: '',
+
+        folderMappingJsonStr: '',
 
         // CSRF Headers for Spring Security
         getCsrfHeaders() {
@@ -57,6 +65,8 @@ document.addEventListener('alpine:init', () => {
             if (cartData && cartData.items) {
                 this.products = cartData.items;
             }
+            // Сбрасываем выделение при обновлении
+            this.selectedProducts = [];
         },
 
         flattenTree(nodes, level = 0) {
@@ -76,7 +86,12 @@ document.addEventListener('alpine:init', () => {
 
         // --- ВЫЧИСЛЯЕМЫЕ СВОЙСТВА (Getters) ---
         get activeFolderProducts() {
-            return this.products.filter(p => p.folderId === this.activeFolderId);
+            let filtered = this.products.filter(p => p.folderId === this.activeFolderId);
+            if (this.searchQuery) {
+                const q = this.searchQuery.toLowerCase();
+                filtered = filtered.filter(p => p.name.toLowerCase().includes(q) || (p.article && p.article.toLowerCase().includes(q)));
+            }
+            return filtered;
         },
 
         get activeFolderName() {
@@ -97,6 +112,146 @@ document.addEventListener('alpine:init', () => {
         },
 
         // --- МЕТОДЫ (Actions) ---
+        
+        toggleAll(event) {
+            if (event.target.checked) {
+                this.selectedProducts = this.activeFolderProducts.map(p => p.id);
+            } else {
+                this.selectedProducts = [];
+            }
+        },
+
+        async bulkMove() {
+            if (!this.bulkTargetFolder || this.selectedProducts.length === 0) return;
+            const targetFolderId = Number(this.bulkTargetFolder);
+            
+            try {
+                this.isLoading = true;
+                const params = new URLSearchParams();
+                params.set('sectionId', targetFolderId);
+                
+                this.selectedProducts.forEach(id => {
+                    const productId = typeof id === 'string' && id.includes('_') ? id.split('_')[0] : id;
+                    params.append('productIds', String(productId));
+                });
+                
+                await this.api('/cart/sections/assign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },      
+                    body: params
+                });
+
+                this.selectedProducts = [];
+                this.bulkTargetFolder = '';
+                await this.loadCartItems();
+            } catch (err) {
+                alert('Ошибка при перемещении товаров: ' + err.message);
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
+        async bulkApplyCoeff() {
+            if (!this.bulkCoeff || this.selectedProducts.length === 0) return;
+            const coeff = parseFloat(this.bulkCoeff);
+            if (isNaN(coeff) || coeff <= 0) {
+                alert('Некорректный коэффициент');
+                return;
+            }
+
+            try {
+                this.isLoading = true;
+                // Пытаемся использовать bulk endpoint
+                let usedBulk = false;
+                try {
+                    const params = new URLSearchParams();
+                    params.set('coefficient', coeff);
+                    this.selectedProducts.forEach(id => {
+                        const productId = typeof id === 'string' && id.includes('_') ? id.split('_')[0] : id;
+                        params.append('productIds', String(productId));
+                    });
+                    
+                    await this.api('/cart/coefficient/bulk', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params
+                    });
+                    usedBulk = true;
+                } catch (e) {
+                    console.log("Bulk coeff failed, falling back to individual calls");
+                }
+
+                if (!usedBulk) {
+                    for (const id of this.selectedProducts) {
+                        const productId = typeof id === 'string' && id.includes('_') ? id.split('_')[0] : id;
+                        const params = new URLSearchParams();
+                        params.set('productId', productId);
+                        params.set('coefficient', coeff);
+                        await this.api('/cart/coefficient', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: params
+                        });
+                    }
+                }
+                
+                this.selectedProducts = [];
+                this.bulkCoeff = '';
+                await this.loadCartItems();
+            } catch (err) {
+                alert('Ошибка при применении коэффициента: ' + err.message);
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
+        async bulkDelete() {
+            if (this.selectedProducts.length === 0) return;
+            if (!confirm(`Вы уверены, что хотите удалить ${this.selectedProducts.length} товаров?`)) return;
+
+            try {
+                this.isLoading = true;
+                // Пытаемся использовать bulk endpoint
+                let usedBulk = false;
+                try {
+                    const params = new URLSearchParams();
+                    this.selectedProducts.forEach(id => {
+                        const productId = typeof id === 'string' && id.includes('_') ? id.split('_')[0] : id;
+                        params.append('productIds', String(productId));
+                    });
+                    
+                    await this.api('/cart/remove-selected', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params
+                    });
+                    usedBulk = true;
+                } catch (e) {
+                    console.log("Bulk remove failed, falling back to individual calls");
+                }
+
+                if (!usedBulk) {
+                    for (const id of this.selectedProducts) {
+                        let pid = id;
+                        let sid = null;
+                        if (typeof id === 'string' && id.includes('_')) {
+                            const parts = id.split('_');
+                            pid = parts[0];
+                            sid = parts[1];
+                        }
+                        await this.syncQty(pid, 0, sid);
+                    }
+                }
+                
+                this.selectedProducts = [];
+                await this.loadCartItems();
+            } catch (err) {
+                alert('Ошибка при удалении товаров: ' + err.message);
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
         formatMoney(val) {
             return Number(val).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₸';
         },
@@ -281,6 +436,19 @@ document.addEventListener('alpine:init', () => {
         onDragStart(event, id) {
             event.dataTransfer.setData('text/product-composite-id', String(id));
             event.dataTransfer.effectAllowed = 'move';
+        },
+
+        prepareSaveDraft(event) {
+            // Формируем структуру папок для бэкенда
+            const mapping = {};
+            this.products.forEach(p => {
+                if (!mapping[p.folderId]) {
+                    mapping[p.folderId] = [];
+                }
+                mapping[p.folderId].push(String(p.productId));
+            });
+            this.folderMappingJsonStr = JSON.stringify(mapping);
+            // Форма продолжит отправку (submit) стандартным образом, так как мы не делаем event.preventDefault()
         },
 
         onDragOver(event) {
